@@ -2,14 +2,20 @@ import { useMemo, useState } from 'react';
 import './App.css';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const HALLS = ['University Hall A', 'University Hall B', 'Innovation Center', 'Atrium Hall'];
+const HALLS = ['University Hall', 'Multipurpose Hall PSB'];
+const ORGANIZATIONS = ['Paradigm', 'ACSS', 'SITES'];
+const ROLE_PERMISSIONS = {
+  Admin: ['dashboard', 'admin', 'calendar'],
+  Staff: ['dashboard', 'calendar'],
+  'Student Org': ['dashboard', 'request', 'calendar'],
+};
 
 const INITIAL_REQUESTS = [
   {
     id: 'REQ-4021',
     eventName: 'Leadership Summit',
-    organization: 'CS Guild',
-    hall: 'University Hall A',
+    organization: 'CCS',
+    hall: 'University Hall',
     date: '2026-03-24',
     startTime: '09:00',
     endTime: '13:00',
@@ -20,8 +26,8 @@ const INITIAL_REQUESTS = [
   {
     id: 'REQ-4022',
     eventName: 'Innovation Fair',
-    organization: 'Tech Society',
-    hall: 'Innovation Center',
+    organization: 'SITES',
+    hall: 'Multipurpose Hall PSB',
     date: '2026-03-28',
     startTime: '11:00',
     endTime: '16:00',
@@ -32,8 +38,8 @@ const INITIAL_REQUESTS = [
   {
     id: 'REQ-4023',
     eventName: 'Campus Mixer',
-    organization: 'Student Council',
-    hall: 'Atrium Hall',
+    organization: 'Paradigm',
+    hall: 'University Hall',
     date: '2026-04-02',
     startTime: '15:00',
     endTime: '19:00',
@@ -44,8 +50,8 @@ const INITIAL_REQUESTS = [
   {
     id: 'REQ-4024',
     eventName: 'Choir Rehearsal',
-    organization: 'Performing Arts Club',
-    hall: 'University Hall B',
+    organization: 'ACSS',
+    hall: 'Multipurpose Hall PSB',
     date: '2026-03-25',
     startTime: '13:00',
     endTime: '16:00',
@@ -104,9 +110,38 @@ function formatDisplayDate(rawDate) {
   });
 }
 
+function inferUserProfileFromEmail(email) {
+  const normalized = (email || '').trim().toLowerCase();
+  const localPart = normalized.split('@')[0] || '';
+
+  if (localPart.includes('admin')) {
+    return { role: 'Admin', organization: '' };
+  }
+
+  if (localPart.includes('staff')) {
+    return { role: 'Staff', organization: '' };
+  }
+
+  if (localPart.includes('acss')) {
+    return { role: 'Student Org', organization: 'ACSS' };
+  }
+
+  if (localPart.includes('paradigm')) {
+    return { role: 'Student Org', organization: 'Paradigm' };
+  }
+
+  return { role: 'Student Org', organization: 'SITES' };
+}
+
 function App() {
   const [activeView, setActiveView] = useState('dashboard');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState({
+    isAuthenticated: false,
+    role: 'Student Org',
+    organization: 'SITES',
+    name: 'Guest',
+  });
   const [requests, setRequests] = useState(INITIAL_REQUESTS);
   const [adminFilter, setAdminFilter] = useState('Pending');
   const [dashboardStatus, setDashboardStatus] = useState('all');
@@ -116,7 +151,7 @@ function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState('');
   const [authErrors, setAuthErrors] = useState({});
-  const [authData, setAuthData] = useState({ fullName: '', email: '', role: 'Student Org', password: '', confirmPassword: '' });
+  const [authData, setAuthData] = useState({ fullName: '', email: '', password: '', confirmPassword: '' });
   const [notifications, setNotifications] = useState([
     { id: 'N-1', message: 'Welcome to the NEU Hall Events Management System.', type: 'info' },
   ]);
@@ -132,28 +167,46 @@ function App() {
   const [formErrors, setFormErrors] = useState({});
   const [savedDraft, setSavedDraft] = useState('');
 
+  const currentRole = currentUser.role;
+  const permittedViews = ROLE_PERMISSIONS[currentRole] || ROLE_PERMISSIONS['Student Org'];
+  const canAccess = (view) => {
+    if (view === 'dashboard') {
+      return true;
+    }
+    return currentUser.isAuthenticated && permittedViews.includes(view);
+  };
+
+  const dashboardBaseRequests = useMemo(() => {
+    if (currentRole === 'Student Org' && currentUser.organization) {
+      return requests.filter((request) => request.organization === currentUser.organization);
+    }
+    return requests;
+  }, [currentRole, currentUser.organization, requests]);
+
   const dashboardStats = useMemo(() => {
-    const total = requests.length;
-    const approved = requests.filter((request) => request.status === 'Approved').length;
-    const pending = requests.filter((request) => request.status === 'Pending').length;
-    const rejected = requests.filter((request) => request.status === 'Rejected').length;
+    const total = dashboardBaseRequests.length;
+    const approved = dashboardBaseRequests.filter((request) => request.status === 'Approved').length;
+    const pending = dashboardBaseRequests.filter((request) => request.status === 'Pending').length;
+    const rejected = dashboardBaseRequests.filter((request) => request.status === 'Rejected').length;
     const hallsInUse = new Set(
-      requests
+      dashboardBaseRequests
         .filter((request) => request.status === 'Approved')
         .map((request) => request.hall)
     ).size;
 
+    const firstLabel = currentRole === 'Student Org' ? 'My Requests' : 'Total Requests';
+
     return [
-      { label: 'Total Requests', value: String(total) },
+      { label: firstLabel, value: String(total) },
       { label: 'Approved', value: String(approved) },
       { label: 'Pending Review', value: String(pending) },
       { label: 'Rejected', value: String(rejected) },
       { label: 'Halls Active', value: String(hallsInUse) },
     ];
-  }, [requests]);
+  }, [currentRole, dashboardBaseRequests]);
 
   const filteredRequests = useMemo(() => {
-    return requests.filter((request) => {
+    return dashboardBaseRequests.filter((request) => {
       const matchesStatus = dashboardStatus === 'all' || request.status === dashboardStatus;
       const query = dashboardSearch.trim().toLowerCase();
       const matchesSearch =
@@ -165,14 +218,14 @@ function App() {
 
       return matchesStatus && matchesSearch;
     });
-  }, [dashboardSearch, dashboardStatus, requests]);
+  }, [dashboardBaseRequests, dashboardSearch, dashboardStatus]);
 
   const featuredEvents = useMemo(
     () =>
-      [...requests]
+      [...dashboardBaseRequests]
         .sort((a, b) => new Date(a.date) - new Date(b.date))
         .slice(0, 6),
-    [requests]
+    [dashboardBaseRequests]
   );
 
   const adminQueue = useMemo(
@@ -239,6 +292,11 @@ function App() {
 
   function handleDraftSave(event) {
     event.preventDefault();
+    if (!canAccess('request')) {
+      pushNotification('You are not authorized to submit hall requests.', 'error');
+      return;
+    }
+
     if (!validateForm()) {
       setSavedDraft('');
       pushNotification('Reservation form has validation errors. Please review the highlighted fields.', 'error');
@@ -248,7 +306,7 @@ function App() {
     const draftRequest = {
       id: 'REQ-' + String(5000 + requests.length + 1),
       eventName: formData.eventName.trim(),
-      organization: formData.organization.trim(),
+      organization: currentRole === 'Student Org' ? currentUser.organization : formData.organization.trim(),
       hall: formData.hall,
       date: formData.date,
       startTime: formData.startTime,
@@ -305,22 +363,44 @@ function App() {
     setAuthMessage('');
     setTimeout(() => {
       setAuthLoading(false);
+      const resolvedProfile = inferUserProfileFromEmail(authData.email);
+      setCurrentUser({
+        isAuthenticated: true,
+        role: resolvedProfile.role,
+        organization: resolvedProfile.organization,
+        name: authData.fullName.trim() || authData.email.split('@')[0] || resolvedProfile.role,
+      });
+
+      if (resolvedProfile.role === 'Student Org') {
+        setFormData((previous) => ({ ...previous, organization: resolvedProfile.organization }));
+      }
+
       if (authMode === 'login') {
-        setAuthMessage('Welcome back. You are now ready to manage events.');
+        setAuthMessage(`Welcome back. Signed in as ${resolvedProfile.role}.`);
         pushNotification('Authentication workflow test passed in UI mode.', 'success');
       } else {
-        setAuthMessage('Registration submitted. You can proceed with your first hall request.');
+        setAuthMessage(`Registration submitted. Signed in as ${resolvedProfile.role}.`);
         pushNotification('Registration UX validated with inline feedback.', 'success');
       }
+      setActiveView('dashboard');
     }, 700);
   }
 
   function handleDecision(requestId, nextStatus) {
+    if (!canAccess('admin')) {
+      pushNotification('You are not authorized to manage approval decisions.', 'error');
+      return;
+    }
     setRequests((previous) => previous.map((request) => (request.id === requestId ? { ...request, status: nextStatus } : request)));
     pushNotification(requestId + ' marked as ' + nextStatus + '.', nextStatus === 'Approved' ? 'success' : 'info');
   }
 
   function switchView(view) {
+    if (view !== 'auth' && !canAccess(view)) {
+      pushNotification(`Access denied: ${currentRole} cannot open ${view}.`, 'error');
+      return;
+    }
+
     setIsSubmitting(true);
     setMobileNavOpen(false);
     setTimeout(() => {
@@ -337,6 +417,9 @@ function App() {
         <div>
           <p className="nav-label">NEU Hall Events Management System</p>
           <h1>Campus Events Operations Center</h1>
+          {currentUser.isAuthenticated ? (
+            <p className="active-role">Signed in as {currentUser.role}{currentUser.organization ? ` - ${currentUser.organization}` : ''}</p>
+          ) : null}
         </div>
         <button
           type="button"
@@ -348,8 +431,24 @@ function App() {
           Menu
         </button>
         <nav className={mobileNavOpen ? 'nav-actions open' : 'nav-actions'} aria-label="quick actions">
-          <button className="ghost-btn" type="button" onClick={() => switchView('auth')}>Login</button>
-          <button className="solid-btn" type="button" onClick={() => switchView('request')}>Create Request</button>
+          {!currentUser.isAuthenticated ? (
+            <button className="ghost-btn" type="button" onClick={() => switchView('auth')}>Login</button>
+          ) : (
+            <button
+              className="ghost-btn"
+              type="button"
+              onClick={() => {
+                setCurrentUser({ isAuthenticated: false, role: 'Student Org', organization: 'SITES', name: 'Guest' });
+                setActiveView('dashboard');
+                pushNotification('You have been logged out.', 'info');
+              }}
+            >
+              Logout
+            </button>
+          )}
+          {canAccess('request') ? (
+            <button className="solid-btn" type="button" onClick={() => switchView('request')}>Create Request</button>
+          ) : null}
         </nav>
       </header>
 
@@ -368,6 +467,19 @@ function App() {
           </div>
         </section>
 
+        <section className="role-strip rise-in" style={{ animationDelay: '160ms' }}>
+          {['Admin', 'Staff', 'Student Org'].map((role) => (
+            <article key={role} className={currentRole === role ? 'role-card active' : 'role-card'}>
+              <h3>{role}</h3>
+              <p>
+                {role === 'Admin' ? 'Full approval authority and oversight on all requests.' : null}
+                {role === 'Staff' ? 'Read-only operations visibility for schedules and requests.' : null}
+                {role === 'Student Org' ? 'Can submit and track organization reservation requests.' : null}
+              </p>
+            </article>
+          ))}
+        </section>
+
         <section className="stats-grid">
           {dashboardStats.map((stat, index) => (
             <article className="stat-card rise-in" style={{ animationDelay: index * 90 + 'ms' }} key={stat.label}>
@@ -378,11 +490,15 @@ function App() {
         </section>
 
         <section className="view-switcher rise-in" style={{ animationDelay: '250ms' }}>
-          <button type="button" className={activeView === 'dashboard' ? 'switch-pill active' : 'switch-pill'} onClick={() => switchView('dashboard')}>Dashboard</button>
-          <button type="button" className={activeView === 'request' ? 'switch-pill active' : 'switch-pill'} onClick={() => switchView('request')}>Request Form</button>
-          <button type="button" className={activeView === 'admin' ? 'switch-pill active' : 'switch-pill'} onClick={() => switchView('admin')}>Admin Queue</button>
-          <button type="button" className={activeView === 'calendar' ? 'switch-pill active' : 'switch-pill'} onClick={() => switchView('calendar')}>Calendar</button>
-          <button type="button" className={activeView === 'auth' ? 'switch-pill active' : 'switch-pill'} onClick={() => switchView('auth')}>Login/Register</button>
+          {canAccess('dashboard') ? (
+            <button type="button" className={activeView === 'dashboard' ? 'switch-pill active' : 'switch-pill'} onClick={() => switchView('dashboard')}>Dashboard</button>
+          ) : null}
+          {canAccess('admin') ? (
+            <button type="button" className={activeView === 'admin' ? 'switch-pill active' : 'switch-pill'} onClick={() => switchView('admin')}>Admin Queue</button>
+          ) : null}
+          {canAccess('calendar') ? (
+            <button type="button" className={activeView === 'calendar' ? 'switch-pill active' : 'switch-pill'} onClick={() => switchView('calendar')}>Calendar</button>
+          ) : null}
         </section>
 
         {isSubmitting ? (
@@ -505,7 +621,7 @@ function App() {
           </>
         ) : null}
 
-        {activeView === 'request' && !isSubmitting ? (
+        {activeView === 'request' && !isSubmitting && canAccess('request') ? (
           <section className="workspace-grid">
             <article className="panel form-panel rise-in" style={{ animationDelay: '500ms' }}>
               <div className="panel-head">
@@ -519,7 +635,18 @@ function App() {
                 {formErrors.eventName ? <p className="field-error">{formErrors.eventName}</p> : null}
 
                 <label htmlFor="organization">Organization</label>
-                <input id="organization" name="organization" value={formData.organization} onChange={handleInputChange} placeholder="Example: School of Computer Studies" />
+                <select
+                  id="organization"
+                  name="organization"
+                  value={currentRole === 'Student Org' ? currentUser.organization : formData.organization}
+                  onChange={handleInputChange}
+                  disabled={currentRole === 'Student Org' && currentUser.isAuthenticated}
+                >
+                  <option value="">Select organization</option>
+                  {ORGANIZATIONS.map((organization) => (
+                    <option key={organization} value={organization}>{organization}</option>
+                  ))}
+                </select>
                 {formErrors.organization ? <p className="field-error">{formErrors.organization}</p> : null}
 
                 <label htmlFor="hall">Preferred Hall</label>
@@ -589,7 +716,7 @@ function App() {
           </section>
         ) : null}
 
-        {activeView === 'admin' && !isSubmitting ? (
+        {activeView === 'admin' && !isSubmitting && canAccess('admin') ? (
           <section className="workspace-grid single-focus">
             <article className="panel task-panel rise-in" style={{ animationDelay: '500ms' }}>
               <div className="panel-head">
@@ -637,7 +764,7 @@ function App() {
           </section>
         ) : null}
 
-        {activeView === 'calendar' && !isSubmitting ? (
+        {activeView === 'calendar' && !isSubmitting && canAccess('calendar') ? (
           <section className="workspace-grid single-focus">
             <article className="panel calendar-panel rise-in" style={{ animationDelay: '500ms' }}>
               <div className="panel-head">
@@ -692,13 +819,6 @@ function App() {
                 <input id="email" name="email" type="email" value={authData.email} onChange={handleAuthInput} placeholder="name@neu.edu.ph" />
                 {authErrors.email ? <p className="field-error">{authErrors.email}</p> : null}
 
-                <label htmlFor="role">Role</label>
-                <select id="role" name="role" value={authData.role} onChange={handleAuthInput}>
-                  <option>Student Org</option>
-                  <option>Staff</option>
-                  <option>Admin</option>
-                </select>
-
                 <label htmlFor="password">Password</label>
                 <input id="password" name="password" type="password" value={authData.password} onChange={handleAuthInput} placeholder="Minimum 8 characters" />
                 {authErrors.password ? <p className="field-error">{authErrors.password}</p> : null}
@@ -717,6 +837,18 @@ function App() {
 
                 <p className="draft-message" aria-live="polite">{authMessage}</p>
               </form>
+            </article>
+          </section>
+        ) : null}
+
+        {!isSubmitting && activeView !== 'auth' && !canAccess(activeView) ? (
+          <section className="workspace-grid single-focus">
+            <article className="panel unauthorized-panel rise-in">
+              <h3>Access Restricted</h3>
+              <p>
+                Your current role does not have permission to open this module. Switch role in Login to continue.
+              </p>
+              <button type="button" className="solid-btn" onClick={() => switchView('auth')}>Go to Login</button>
             </article>
           </section>
         ) : null}

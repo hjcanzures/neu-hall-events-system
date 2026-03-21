@@ -76,6 +76,12 @@
   font-weight: 700;
 }
 
+.active-role {
+  margin: 0.35rem 0 0;
+  color: #d2ecff;
+  font-size: 0.8rem;
+}
+
 .nav-actions {
   display: flex;
   gap: 0.7rem;
@@ -181,6 +187,39 @@
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.8rem;
+}
+
+.role-strip {
+  margin-top: 0.95rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.role-card {
+  border-radius: 14px;
+  border: 1px solid #b7d2e8;
+  background: #f1f8ff;
+  padding: 0.8rem;
+}
+
+.role-card h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #1c557d;
+}
+
+.role-card p {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: #496786;
+  line-height: 1.35;
+}
+
+.role-card.active {
+  border-color: #75c2d4;
+  background: linear-gradient(140deg, #e6fbff 0%, #eef6ff 100%);
+  box-shadow: 0 10px 18px #73bfd725;
 }
 
 .stat-card {
@@ -612,6 +651,17 @@ select:focus,
   margin-bottom: 0.35rem;
 }
 
+.unauthorized-panel {
+  text-align: left;
+}
+
+.unauthorized-panel p {
+  margin: 0.5rem 0 1rem;
+  color: #4a6886;
+  line-height: 1.45;
+  max-width: 640px;
+}
+
 .calendar-panel {
   overflow: auto;
 }
@@ -712,6 +762,10 @@ select:focus,
 @media (max-width: 1080px) {
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .role-strip {
+    grid-template-columns: 1fr;
   }
 
   .panel-grid,
