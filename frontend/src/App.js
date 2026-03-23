@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect ,useMemo, useState } from 'react';
 import './App.css';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -134,7 +134,7 @@ function inferUserProfileFromEmail(email) {
 }
 
 function App() {
-  const [activeView, setActiveView] = useState('dashboard');
+  const [activeView, setActiveView] = useState('auth');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState({
     isAuthenticated: false,
@@ -153,7 +153,10 @@ function App() {
   const [authErrors, setAuthErrors] = useState({});
   const [authData, setAuthData] = useState({ fullName: '', email: '', password: '', confirmPassword: '' });
   const [notifications, setNotifications] = useState([
-    { id: 'N-1', message: 'Welcome to the NEU Hall Events Management System.', type: 'info' },
+    { id: 'N-1', 
+      message: 'Welcome to the NEU Hall Events Management System.', 
+      type: 'info',
+      exiting: false},
   ]);
   const [formData, setFormData] = useState({
     eventName: '',
@@ -166,6 +169,15 @@ function App() {
   });
   const [formErrors, setFormErrors] = useState({});
   const [savedDraft, setSavedDraft] = useState('');
+
+  useEffect(() => {
+  // This looks for the initial 'N-1' welcome message
+  const timer = setTimeout(() => {
+    triggerClose('N-1');
+  }, 4000);
+
+  return () => clearTimeout(timer);
+}, []);
 
   const currentRole = currentUser.role;
   const permittedViews = ROLE_PERMISSIONS[currentRole] || ROLE_PERMISSIONS['Student Org'];
@@ -247,9 +259,29 @@ function App() {
     }));
   }, [requests]);
 
+  function triggerClose(id) {
+  // 1. Mark the specific notification as 'exiting'
+  setNotifications((prev) =>
+    prev.map((n) => (n.id === id ? { ...n, exiting: true } : n))
+  );
+
+  // 2. Wait 400ms (matching your CSS animation time) then remove it
+  setTimeout(() => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  }, 400);
+}
+
   function pushNotification(message, type) {
-    setNotifications((previous) => [{ id: 'N-' + (previous.length + 1), message, type }, ...previous.slice(0, 4)]);
-  }
+  const id = 'N-' + Date.now(); // Better unique ID
+  const newNote = { id, message, type };
+
+  setNotifications((prev) => [newNote, ...prev]);
+
+  setTimeout(() => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  }, 3000);
+  
+}
 
   function handleInputChange(event) {
     const { name, value } = event.target;
@@ -364,6 +396,7 @@ function App() {
     setTimeout(() => {
       setAuthLoading(false);
       const resolvedProfile = inferUserProfileFromEmail(authData.email);
+
       setCurrentUser({
         isAuthenticated: true,
         role: resolvedProfile.role,
@@ -377,12 +410,12 @@ function App() {
 
       if (authMode === 'login') {
         setAuthMessage(`Welcome back. Signed in as ${resolvedProfile.role}.`);
-        pushNotification('Authentication workflow test passed in UI mode.', 'success');
       } else {
         setAuthMessage(`Registration submitted. Signed in as ${resolvedProfile.role}.`);
         pushNotification('Registration UX validated with inline feedback.', 'success');
       }
       setActiveView('dashboard');
+      pushNotification(`Welcome, ${resolvedProfile.role}!`, 'success');
     }, 700);
   }
 
@@ -396,17 +429,25 @@ function App() {
   }
 
   function switchView(view) {
-    if (view !== 'auth' && !canAccess(view)) {
-      pushNotification(`Access denied: ${currentRole} cannot open ${view}.`, 'error');
-      return;
-    }
+    if (!currentUser.isAuthenticated && view !== 'auth') {
+    pushNotification('Please login to access this feature.', 'error');
+    
+    setActiveView('auth');
+    return;
+  }
 
-    setIsSubmitting(true);
-    setMobileNavOpen(false);
-    setTimeout(() => {
-      setActiveView(view);
-      setIsSubmitting(false);
-    }, 220);
+  // --- Existing logic for authenticated users ---
+  if (view !== 'auth' && !canAccess(view)) {
+    pushNotification(`Access denied: ${currentRole} cannot open ${view}.`, 'error');
+    return;
+  }
+
+  setIsSubmitting(true);
+  setMobileNavOpen(false);
+  setTimeout(() => {
+    setActiveView(view);
+    setIsSubmitting(false);
+  }, 220);
   }
 
   return (
@@ -435,11 +476,17 @@ function App() {
             <button className="ghost-btn" type="button" onClick={() => switchView('auth')}>Login</button>
           ) : (
             <button
-              className="ghost-btn"
+              className="ghost-btn-danger"
               type="button"
               onClick={() => {
-                setCurrentUser({ isAuthenticated: false, role: 'Student Org', organization: 'SITES', name: 'Guest' });
-                setActiveView('dashboard');
+                setCurrentUser({ isAuthenticated: false, 
+                                 role: 'Student Org', 
+                                 organization: 'SITES', 
+                                 name: 'Guest' });
+
+                setAuthMessage(''); 
+                setAuthData({ fullName: '', email: '', password: '', confirmPassword: '' });                
+                setActiveView('auth');
                 pushNotification('You have been logged out.', 'info');
               }}
             >
@@ -453,11 +500,12 @@ function App() {
       </header>
 
       <main className="content-wrap">
+        {!currentUser.isAuthenticated && (
         <section className="hero-card rise-in">
           <p className="eyebrow">Live Event Management</p>
           <h2>Plan, request, approve, and monitor hall events from one unified workflow.</h2>
           <p className="hero-copy">
-            Built for student organizations, staff, and admins to keep requests moving with clear status, quick decisions,
+            Built for student organizations to keep requests moving with clear status, quick decisions,
             and reliable hall availability visibility.
           </p>
           <div className="hero-chips">
@@ -466,28 +514,22 @@ function App() {
             <span>Availability-first scheduling</span>
           </div>
         </section>
+        )}
 
-        <section className="role-strip rise-in" style={{ animationDelay: '160ms' }}>
-          {['Admin', 'Staff', 'Student Org'].map((role) => (
-            <article key={role} className={currentRole === role ? 'role-card active' : 'role-card'}>
-              <h3>{role}</h3>
-              <p>
-                {role === 'Admin' ? 'Full approval authority and oversight on all requests.' : null}
-                {role === 'Staff' ? 'Read-only operations visibility for schedules and requests.' : null}
-                {role === 'Student Org' ? 'Can submit and track organization reservation requests.' : null}
-              </p>
-            </article>
-          ))}
-        </section>
-
-        <section className="stats-grid">
-          {dashboardStats.map((stat, index) => (
-            <article className="stat-card rise-in" style={{ animationDelay: index * 90 + 'ms' }} key={stat.label}>
-              <p>{stat.label}</p>
-              <h3>{stat.value}</h3>
-            </article>
-          ))}
-        </section>
+        {currentUser.isAuthenticated && (
+          <section className="stats-grid">
+            {dashboardStats.map((stat, index) => (
+              <article 
+                className="stat-card rise-in" 
+                style={{ animationDelay: index * 90 + 'ms' }} 
+                key={stat.label}
+              >
+                <p>{stat.label}</p>
+                <h3>{stat.value}</h3>
+              </article>
+            ))}
+          </section>
+        )}
 
         <section className="view-switcher rise-in" style={{ animationDelay: '250ms' }}>
           {canAccess('dashboard') ? (
@@ -542,20 +584,6 @@ function App() {
                   ))}
                 </ul>
               </article>
-
-              <article className="panel notice-panel rise-in" style={{ animationDelay: '420ms' }}>
-                <div className="panel-head">
-                  <h3>Recent Notifications</h3>
-                  <span>Live activity</span>
-                </div>
-                <ul className="notice-list">
-                  {notifications.map((entry) => (
-                    <li key={entry.id} className={'notice ' + entry.type}>
-                      <p>{entry.message}</p>
-                    </li>
-                  ))}
-                </ul>
-              </article>
             </section>
 
             <section className="workspace-grid">
@@ -605,7 +633,7 @@ function App() {
                   ))}
                 </ul>
               </article>
-
+              {currentUser.role !== 'Admin' && (
               <article className="panel notice-panel rise-in" style={{ animationDelay: '580ms' }}>
                 <div className="panel-head">
                   <h3>Service Tips</h3>
@@ -616,7 +644,7 @@ function App() {
                   <li className="notice info"><p>Set attendee count accurately for hall matching.</p></li>
                   <li className="notice info"><p>Use calendar view before choosing your preferred slot.</p></li>
                 </ul>
-              </article>
+              </article>)}
             </section>
           </>
         ) : null}
@@ -853,7 +881,33 @@ function App() {
           </section>
         ) : null}
       </main>
+      <div className="toast-container">
+  {notifications.map((entry) => (
+    <div 
+      key={entry.id} 
+      /* This dynamically adds the 'exiting' class for the smooth slide-out */
+      className={`toast-banner ${entry.type} ${entry.exiting ? 'exiting' : ''}`}
+    >
+      <div className="toast-content">
+        <span className="toast-icon">
+          {entry.type === 'success' ? '✓' : entry.type === 'error' ? '✕' : 'ℹ'}
+        </span>
+        <p>{entry.message}</p>
+      </div>
+      
+      {/* Manually clicking the 'X' now also triggers the smooth exit */}
+      <button 
+        type="button"
+        className="toast-close" 
+        onClick={() => triggerClose(entry.id)}
+      >
+        ×
+      </button>
     </div>
+  ))}
+</div>
+    </div>
+    
   );
 }
 
