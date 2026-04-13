@@ -1,19 +1,14 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
+const { protect } = require('../middleware/authMiddleware');
+const {
+  createReservation,
+  getReservations,
+  deleteReservation,
+} = require('../controllers/reservationController');
 
-// Create reservation
-router.post("/", (req, res) => {
-  res.json({ message: "Create reservation" });
-});
-
-// View reservations
-router.get("/", (req, res) => {
-  res.json({ message: "Get reservations" });
-});
-
-// Cancel reservation
-router.delete("/:id", (req, res) => {
-  res.json({ message: "Delete reservation" });
-});
+router.post('/', protect, createReservation);
+router.get('/', protect, getReservations);
+router.delete('/:id', protect, deleteReservation);
 
 module.exports = router;

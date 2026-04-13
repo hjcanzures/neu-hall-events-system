@@ -1,10 +1,34 @@
-const express = require("express");
-const cors = require("cors");
-const dotenv = require("dotenv");
-const connectDB = require("./config/db");
+const express = require('express');
+const cors = require('cors');
+const dotenv = require('dotenv');
+const bcrypt = require('bcryptjs');
+const connectDB = require('./config/db');
+const User = require('./models/User');
 
 dotenv.config();
-connectDB();
+
+const createDefaultAdmin = async () => {
+  const adminEmail = (process.env.ADMIN_EMAIL || 'admin@neu.edu.ph').trim().toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD || 'Admin1234';
+
+  const existing = await User.findOne({ email: adminEmail });
+  if (existing) {
+    console.log(`Admin user exists: ${adminEmail}`);
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(adminPassword, 10);
+  await User.create({
+    fullName: 'NEU Administrator',
+    email: adminEmail,
+    passwordHash,
+    role: 'Admin',
+    organization: '',
+  });
+
+  console.log(`Created default admin user: ${adminEmail}`);
+  console.log(`Admin login: ${adminEmail} / ${adminPassword}`);
+};
 
 const app = express();
 
@@ -34,6 +58,13 @@ app.get("/", (req, res) => {
 // Server
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+const startServer = async () => {
+  await connectDB();
+  await createDefaultAdmin();
+
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+};
+
+startServer();

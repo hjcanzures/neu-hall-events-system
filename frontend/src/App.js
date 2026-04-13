@@ -1,6 +1,8 @@
 import { useEffect ,useMemo, useState } from 'react';
 import './App.css';
 
+const API_BASE = 'http://localhost:5000/api';
+const AUTH_STORAGE_KEY = 'neu-hall-events-auth';
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const HALLS = ['University Hall', 'Multipurpose Hall PSB'];
 const ORGANIZATIONS = ['Paradigm', 'ACSS', 'SITES'];
@@ -110,29 +112,6 @@ function formatDisplayDate(rawDate) {
   });
 }
 
-function inferUserProfileFromEmail(email) {
-  const normalized = (email || '').trim().toLowerCase();
-  const localPart = normalized.split('@')[0] || '';
-
-  if (localPart.includes('admin')) {
-    return { role: 'Admin', organization: '' };
-  }
-
-  if (localPart.includes('staff')) {
-    return { role: 'Staff', organization: '' };
-  }
-
-  if (localPart.includes('acss')) {
-    return { role: 'Student Org', organization: 'ACSS' };
-  }
-
-  if (localPart.includes('paradigm')) {
-    return { role: 'Student Org', organization: 'Paradigm' };
-  }
-
-  return { role: 'Student Org', organization: 'SITES' };
-}
-
 function App() {
   const [activeView, setActiveView] = useState('auth');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -151,6 +130,8 @@ function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState('');
   const [authErrors, setAuthErrors] = useState({});
+  const [authToken, setAuthToken] = useState('');
+  const getAuthHeaders = () => (authToken ? { Authorization: `Bearer ${authToken}` } : {});
   const [authData, setAuthData] = useState({ fullName: '', email: '', password: '', confirmPassword: '' });
   const [notifications, setNotifications] = useState([
     { id: 'N-1', 
@@ -178,6 +159,105 @@ function App() {
 
   return () => clearTimeout(timer);
 }, []);
+
+  useEffect(() => {
+    const restoreAuth = async () => {
+      const saved = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (!saved) {
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(saved);
+        if (!parsed?.token) {
+          throw new Error('Invalid auth state');
+        }
+
+        const response = await fetch(`${API_BASE}/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${parsed.token}`,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error('Session expired');
+        }
+
+        const data = await response.json();
+        setAuthToken(parsed.token);
+        setCurrentUser({
+          isAuthenticated: true,
+          role: data.user.role,
+          organization: data.user.organization,
+          name: data.user.fullName || data.user.email.split('@')[0],
+          email: data.user.email,
+        });
+
+        if (data.user.role === 'Student Org') {
+          setFormData((previous) => ({ ...previous, organization: data.user.organization }));
+        }
+
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: parsed.token, user: data.user }));
+        setActiveView('dashboard');
+      } catch (error) {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+        setAuthToken('');
+      }
+    };
+
+    restoreAuth();
+  }, []);
+
+  useEffect(() => {
+    const loadSavedReservations = async () => {
+      if (!authToken) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/reservations`, {
+          headers: {
+            ...getAuthHeaders(),
+          },
+        });
+        if (!response.ok) {
+          throw new Error('Unable to load reservations.');
+        }
+
+        const data = await response.json();
+        const savedRequests = data.map((reservation) => ({
+          id: reservation.requestId || reservation._id,
+          requestId: reservation.requestId,
+          eventName: reservation.eventName,
+          organization: reservation.organization,
+          hall: reservation.hall,
+          date: reservation.date,
+          startTime: reservation.startTime,
+          endTime: reservation.endTime,
+          attendees: reservation.attendees,
+          status: reservation.status,
+          priority: reservation.priority,
+        }));
+
+        setRequests((previous) => {
+          const allRequests = [...previous, ...savedRequests];
+          const seenIds = new Set();
+          return allRequests.filter((request) => {
+            const uniqueKey = request.requestId || request.id || request._id;
+            if (seenIds.has(uniqueKey)) {
+              return false;
+            }
+            seenIds.add(uniqueKey);
+            return true;
+          });
+        });
+      } catch (error) {
+        console.error('Unable to load saved reservations:', error);
+      }
+    };
+
+    loadSavedReservations();
+  }, [authToken]);
 
   const currentRole = currentUser.role;
   const permittedViews = ROLE_PERMISSIONS[currentRole] || ROLE_PERMISSIONS['Student Org'];
@@ -322,7 +402,7 @@ function App() {
     return Object.keys(errors).length === 0;
   }
 
-  function handleDraftSave(event) {
+  async function handleDraftSave(event) {
     event.preventDefault();
     if (!canAccess('request')) {
       pushNotification('You are not authorized to submit hall requests.', 'error');
@@ -335,8 +415,7 @@ function App() {
       return;
     }
 
-    const draftRequest = {
-      id: 'REQ-' + String(5000 + requests.length + 1),
+    const requestPayload = {
       eventName: formData.eventName.trim(),
       organization: currentRole === 'Student Org' ? currentUser.organization : formData.organization.trim(),
       hall: formData.hall,
@@ -348,7 +427,7 @@ function App() {
       priority: getPriorityFromAttendees(Number(formData.attendees)),
     };
 
-    const conflict = requests.some((existing) => hasTimeConflict(existing, draftRequest));
+    const conflict = requests.some((existing) => hasTimeConflict(existing, requestPayload));
     if (conflict) {
       setSavedDraft('');
       setFormErrors((previous) => ({ ...previous, time: 'Time conflict detected for this hall. Choose another slot.' }));
@@ -356,11 +435,45 @@ function App() {
       return;
     }
 
-    setRequests((previous) => [draftRequest, ...previous]);
-    setSavedDraft('Request saved as ' + draftRequest.id + ' and sent for admin review.');
-    pushNotification(draftRequest.id + ' created and submitted to approval queue.', 'success');
-    setFormErrors({});
-    setFormData({ eventName: '', organization: '', hall: '', date: '', startTime: '', endTime: '', attendees: '' });
+    try {
+      const response = await fetch(`${API_BASE}/reservations`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify(requestPayload),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json();
+        throw new Error(errorBody.error || 'Unable to save reservation.');
+      }
+
+      const createdReservation = await response.json();
+      const reservation = {
+        id: createdReservation.requestId || createdReservation._id,
+        requestId: createdReservation.requestId,
+        eventName: createdReservation.eventName,
+        organization: createdReservation.organization,
+        hall: createdReservation.hall,
+        date: createdReservation.date,
+        startTime: createdReservation.startTime,
+        endTime: createdReservation.endTime,
+        attendees: createdReservation.attendees,
+        status: createdReservation.status,
+        priority: createdReservation.priority,
+      };
+
+      setRequests((previous) => [reservation, ...previous]);
+      setSavedDraft('Request saved as ' + reservation.requestId + ' and sent for admin review.');
+      pushNotification(reservation.requestId + ' created and submitted to approval queue.', 'success');
+      setFormErrors({});
+      setFormData({ eventName: '', organization: '', hall: '', date: '', startTime: '', endTime: '', attendees: '' });
+    } catch (error) {
+      console.error('Submit reservation error:', error);
+      pushNotification(error.message || 'Unable to save reservation.', 'error');
+    }
   }
 
   function validateAuth() {
@@ -384,7 +497,7 @@ function App() {
     return Object.keys(errors).length === 0;
   }
 
-  function handleAuthSubmit(event) {
+  async function handleAuthSubmit(event) {
     event.preventDefault();
     if (!validateAuth()) {
       setAuthMessage('');
@@ -393,39 +506,85 @@ function App() {
 
     setAuthLoading(true);
     setAuthMessage('');
-    setTimeout(() => {
-      setAuthLoading(false);
-      const resolvedProfile = inferUserProfileFromEmail(authData.email);
 
-      setCurrentUser({
-        isAuthenticated: true,
-        role: resolvedProfile.role,
-        organization: resolvedProfile.organization,
-        name: authData.fullName.trim() || authData.email.split('@')[0] || resolvedProfile.role,
+    try {
+      const response = await fetch(`${API_BASE}/auth/${authMode}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fullName: authData.fullName.trim(),
+          email: authData.email.trim(),
+          password: authData.password,
+        }),
       });
 
-      if (resolvedProfile.role === 'Student Org') {
-        setFormData((previous) => ({ ...previous, organization: resolvedProfile.organization }));
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to authenticate.');
       }
 
-      if (authMode === 'login') {
-        setAuthMessage(`Welcome back. Signed in as ${resolvedProfile.role}.`);
-      } else {
-        setAuthMessage(`Registration submitted. Signed in as ${resolvedProfile.role}.`);
-        pushNotification('Registration UX validated with inline feedback.', 'success');
+      const user = {
+        isAuthenticated: true,
+        role: data.user.role,
+        organization: data.user.organization,
+        name: data.user.fullName || data.user.email.split('@')[0],
+        email: data.user.email,
+      };
+
+      setCurrentUser(user);
+      setAuthToken(data.token);
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: data.token, user: data.user }));
+
+      if (data.user.role === 'Student Org') {
+        setFormData((previous) => ({ ...previous, organization: data.user.organization }));
       }
+
+      setAuthMessage(authMode === 'login' ? `Welcome back. Signed in as ${data.user.role}.` : `Registration complete. Signed in as ${data.user.role}.`);
       setActiveView('dashboard');
-      pushNotification(`Welcome, ${resolvedProfile.role}!`, 'success');
-    }, 700);
+      pushNotification(`Welcome, ${data.user.role}!`, 'success');
+    } catch (error) {
+      console.error('Auth submit error:', error);
+      setAuthMessage(error.message || 'Unable to authenticate.');
+    } finally {
+      setAuthLoading(false);
+    }
   }
 
-  function handleDecision(requestId, nextStatus) {
+  async function handleDecision(requestId, nextStatus) {
     if (!canAccess('admin')) {
       pushNotification('You are not authorized to manage approval decisions.', 'error');
       return;
     }
-    setRequests((previous) => previous.map((request) => (request.id === requestId ? { ...request, status: nextStatus } : request)));
-    pushNotification(requestId + ' marked as ' + nextStatus + '.', nextStatus === 'Approved' ? 'success' : 'info');
+
+    const action = nextStatus === 'Approved' ? 'approve' : 'reject';
+
+    try {
+      const response = await fetch(`${API_BASE}/approvals/${requestId}/${action}`, {
+        method: 'PUT',
+        headers: {
+          ...getAuthHeaders(),
+        },
+      });
+
+      if (!response.ok) {
+        const body = await response.json();
+        throw new Error(body.error || 'Unable to update reservation status.');
+      }
+
+      const updatedReservation = await response.json();
+      setRequests((previous) =>
+        previous.map((request) =>
+          request.id === requestId ? { ...request, status: updatedReservation.status } : request
+        )
+      );
+
+      pushNotification(requestId + ' marked as ' + nextStatus + '.', nextStatus === 'Approved' ? 'success' : 'info');
+    } catch (error) {
+      console.error('Approval decision error:', error);
+      pushNotification(error.message || 'Unable to update reservation status.', 'error');
+    }
   }
 
   function switchView(view) {
@@ -483,6 +642,8 @@ function App() {
                                  role: 'Student Org', 
                                  organization: 'SITES', 
                                  name: 'Guest' });
+                setAuthToken('');
+                localStorage.removeItem(AUTH_STORAGE_KEY);
 
                 setAuthMessage(''); 
                 setAuthData({ fullName: '', email: '', password: '', confirmPassword: '' });                
