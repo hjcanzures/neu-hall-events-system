@@ -2,6 +2,7 @@ import { useEffect ,useMemo, useState } from 'react';
 import './App.css';
 
 const API_BASE = 'http://localhost:5000/api';
+const AUTH_STORAGE_KEY = 'neu-hall-events-auth';
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const HALLS = ['University Hall', 'Multipurpose Hall PSB'];
 const ORGANIZATIONS = ['Paradigm', 'ACSS', 'SITES'];
@@ -111,29 +112,6 @@ function formatDisplayDate(rawDate) {
   });
 }
 
-function inferUserProfileFromEmail(email) {
-  const normalized = (email || '').trim().toLowerCase();
-  const localPart = normalized.split('@')[0] || '';
-
-  if (localPart.includes('admin')) {
-    return { role: 'Admin', organization: '' };
-  }
-
-  if (localPart.includes('staff')) {
-    return { role: 'Staff', organization: '' };
-  }
-
-  if (localPart.includes('acss')) {
-    return { role: 'Student Org', organization: 'ACSS' };
-  }
-
-  if (localPart.includes('paradigm')) {
-    return { role: 'Student Org', organization: 'Paradigm' };
-  }
-
-  return { role: 'Student Org', organization: 'SITES' };
-}
-
 function App() {
   const [activeView, setActiveView] = useState('auth');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -152,6 +130,8 @@ function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState('');
   const [authErrors, setAuthErrors] = useState({});
+  const [authToken, setAuthToken] = useState('');
+  const getAuthHeaders = () => (authToken ? { Authorization: `Bearer ${authToken}` } : {});
   const [authData, setAuthData] = useState({ fullName: '', email: '', password: '', confirmPassword: '' });
   const [notifications, setNotifications] = useState([
     { id: 'N-1', 
@@ -181,9 +161,65 @@ function App() {
 }, []);
 
   useEffect(() => {
-    const loadSavedReservations = async () => {
+    const restoreAuth = async () => {
+      const saved = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (!saved) {
+        return;
+      }
+
       try {
-        const response = await fetch(`${API_BASE}/reservations`);
+        const parsed = JSON.parse(saved);
+        if (!parsed?.token) {
+          throw new Error('Invalid auth state');
+        }
+
+        const response = await fetch(`${API_BASE}/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${parsed.token}`,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error('Session expired');
+        }
+
+        const data = await response.json();
+        setAuthToken(parsed.token);
+        setCurrentUser({
+          isAuthenticated: true,
+          role: data.user.role,
+          organization: data.user.organization,
+          name: data.user.fullName || data.user.email.split('@')[0],
+          email: data.user.email,
+        });
+
+        if (data.user.role === 'Student Org') {
+          setFormData((previous) => ({ ...previous, organization: data.user.organization }));
+        }
+
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: parsed.token, user: data.user }));
+        setActiveView('dashboard');
+      } catch (error) {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+        setAuthToken('');
+      }
+    };
+
+    restoreAuth();
+  }, []);
+
+  useEffect(() => {
+    const loadSavedReservations = async () => {
+      if (!authToken) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE}/reservations`, {
+          headers: {
+            ...getAuthHeaders(),
+          },
+        });
         if (!response.ok) {
           throw new Error('Unable to load reservations.');
         }
@@ -221,7 +257,7 @@ function App() {
     };
 
     loadSavedReservations();
-  }, []);
+  }, [authToken]);
 
   const currentRole = currentUser.role;
   const permittedViews = ROLE_PERMISSIONS[currentRole] || ROLE_PERMISSIONS['Student Org'];
@@ -404,6 +440,7 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...getAuthHeaders(),
         },
         body: JSON.stringify(requestPayload),
       });
@@ -460,7 +497,7 @@ function App() {
     return Object.keys(errors).length === 0;
   }
 
-  function handleAuthSubmit(event) {
+  async function handleAuthSubmit(event) {
     event.preventDefault();
     if (!validateAuth()) {
       setAuthMessage('');
@@ -469,30 +506,50 @@ function App() {
 
     setAuthLoading(true);
     setAuthMessage('');
-    setTimeout(() => {
-      setAuthLoading(false);
-      const resolvedProfile = inferUserProfileFromEmail(authData.email);
 
-      setCurrentUser({
-        isAuthenticated: true,
-        role: resolvedProfile.role,
-        organization: resolvedProfile.organization,
-        name: authData.fullName.trim() || authData.email.split('@')[0] || resolvedProfile.role,
+    try {
+      const response = await fetch(`${API_BASE}/auth/${authMode}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fullName: authData.fullName.trim(),
+          email: authData.email.trim(),
+          password: authData.password,
+        }),
       });
 
-      if (resolvedProfile.role === 'Student Org') {
-        setFormData((previous) => ({ ...previous, organization: resolvedProfile.organization }));
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to authenticate.');
       }
 
-      if (authMode === 'login') {
-        setAuthMessage(`Welcome back. Signed in as ${resolvedProfile.role}.`);
-      } else {
-        setAuthMessage(`Registration submitted. Signed in as ${resolvedProfile.role}.`);
-        pushNotification('Registration UX validated with inline feedback.', 'success');
+      const user = {
+        isAuthenticated: true,
+        role: data.user.role,
+        organization: data.user.organization,
+        name: data.user.fullName || data.user.email.split('@')[0],
+        email: data.user.email,
+      };
+
+      setCurrentUser(user);
+      setAuthToken(data.token);
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: data.token, user: data.user }));
+
+      if (data.user.role === 'Student Org') {
+        setFormData((previous) => ({ ...previous, organization: data.user.organization }));
       }
+
+      setAuthMessage(authMode === 'login' ? `Welcome back. Signed in as ${data.user.role}.` : `Registration complete. Signed in as ${data.user.role}.`);
       setActiveView('dashboard');
-      pushNotification(`Welcome, ${resolvedProfile.role}!`, 'success');
-    }, 700);
+      pushNotification(`Welcome, ${data.user.role}!`, 'success');
+    } catch (error) {
+      console.error('Auth submit error:', error);
+      setAuthMessage(error.message || 'Unable to authenticate.');
+    } finally {
+      setAuthLoading(false);
+    }
   }
 
   async function handleDecision(requestId, nextStatus) {
@@ -506,6 +563,9 @@ function App() {
     try {
       const response = await fetch(`${API_BASE}/approvals/${requestId}/${action}`, {
         method: 'PUT',
+        headers: {
+          ...getAuthHeaders(),
+        },
       });
 
       if (!response.ok) {
@@ -582,6 +642,8 @@ function App() {
                                  role: 'Student Org', 
                                  organization: 'SITES', 
                                  name: 'Guest' });
+                setAuthToken('');
+                localStorage.removeItem(AUTH_STORAGE_KEY);
 
                 setAuthMessage(''); 
                 setAuthData({ fullName: '', email: '', password: '', confirmPassword: '' });                

@@ -1,5 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const { protect, requireRole } = require('../middleware/authMiddleware');
 const Reservation = require('../models/Reservation');
 const router = express.Router();
 
@@ -29,9 +30,9 @@ const updateStatus = async (req, res, status) => {
 };
 
 // Approve reservation
-router.put('/:id/approve', async (req, res) => updateStatus(req, res, 'Approved'));
+router.put('/:id/approve', protect, requireRole('Admin'), async (req, res) => updateStatus(req, res, 'Approved'));
 
 // Reject reservation
-router.put('/:id/reject', async (req, res) => updateStatus(req, res, 'Rejected'));
+router.put('/:id/reject', protect, requireRole('Admin'), async (req, res) => updateStatus(req, res, 'Rejected'));
 
 module.exports = router;

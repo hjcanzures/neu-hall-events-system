@@ -4,7 +4,6 @@ const createReservation = async (req, res) => {
   try {
     const {
       eventName,
-      organization,
       hall,
       date,
       startTime,
@@ -13,6 +12,8 @@ const createReservation = async (req, res) => {
       status,
       priority,
     } = req.body;
+
+    const organization = req.user.role === 'Student Org' ? req.user.organization : req.body.organization;
 
     if (!eventName || !organization || !hall || !date || !startTime || !endTime || !attendees) {
       return res.status(400).json({ error: 'Missing required reservation fields.' });
@@ -45,9 +46,14 @@ const createReservation = async (req, res) => {
   }
 };
 
-const getReservations = async (_req, res) => {
+const getReservations = async (req, res) => {
   try {
-    const reservations = await Reservation.find().sort({ createdAt: -1 });
+    const query = {};
+    if (req.user.role === 'Student Org') {
+      query.organization = req.user.organization;
+    }
+
+    const reservations = await Reservation.find(query).sort({ createdAt: -1 });
     return res.json(reservations);
   } catch (error) {
     console.error('Get reservations error:', error);
