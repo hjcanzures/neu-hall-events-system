@@ -1,19 +1,13 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
+const {
+  createReservation,
+  getReservations,
+  deleteReservation,
+} = require('../controllers/reservationController');
 
-// Create reservation
-router.post("/", (req, res) => {
-  res.json({ message: "Create reservation" });
-});
-
-// View reservations
-router.get("/", (req, res) => {
-  res.json({ message: "Get reservations" });
-});
-
-// Cancel reservation
-router.delete("/:id", (req, res) => {
-  res.json({ message: "Delete reservation" });
-});
+router.post('/', createReservation);
+router.get('/', getReservations);
+router.delete('/:id', deleteReservation);
 
 module.exports = router;

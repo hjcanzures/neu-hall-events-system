@@ -1,6 +1,7 @@
 import { useEffect ,useMemo, useState } from 'react';
 import './App.css';
 
+const API_BASE = 'http://localhost:5000/api';
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const HALLS = ['University Hall', 'Multipurpose Hall PSB'];
 const ORGANIZATIONS = ['Paradigm', 'ACSS', 'SITES'];
@@ -179,6 +180,49 @@ function App() {
   return () => clearTimeout(timer);
 }, []);
 
+  useEffect(() => {
+    const loadSavedReservations = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/reservations`);
+        if (!response.ok) {
+          throw new Error('Unable to load reservations.');
+        }
+
+        const data = await response.json();
+        const savedRequests = data.map((reservation) => ({
+          id: reservation.requestId || reservation._id,
+          requestId: reservation.requestId,
+          eventName: reservation.eventName,
+          organization: reservation.organization,
+          hall: reservation.hall,
+          date: reservation.date,
+          startTime: reservation.startTime,
+          endTime: reservation.endTime,
+          attendees: reservation.attendees,
+          status: reservation.status,
+          priority: reservation.priority,
+        }));
+
+        setRequests((previous) => {
+          const allRequests = [...previous, ...savedRequests];
+          const seenIds = new Set();
+          return allRequests.filter((request) => {
+            const uniqueKey = request.requestId || request.id || request._id;
+            if (seenIds.has(uniqueKey)) {
+              return false;
+            }
+            seenIds.add(uniqueKey);
+            return true;
+          });
+        });
+      } catch (error) {
+        console.error('Unable to load saved reservations:', error);
+      }
+    };
+
+    loadSavedReservations();
+  }, []);
+
   const currentRole = currentUser.role;
   const permittedViews = ROLE_PERMISSIONS[currentRole] || ROLE_PERMISSIONS['Student Org'];
   const canAccess = (view) => {
@@ -322,7 +366,7 @@ function App() {
     return Object.keys(errors).length === 0;
   }
 
-  function handleDraftSave(event) {
+  async function handleDraftSave(event) {
     event.preventDefault();
     if (!canAccess('request')) {
       pushNotification('You are not authorized to submit hall requests.', 'error');
@@ -335,8 +379,7 @@ function App() {
       return;
     }
 
-    const draftRequest = {
-      id: 'REQ-' + String(5000 + requests.length + 1),
+    const requestPayload = {
       eventName: formData.eventName.trim(),
       organization: currentRole === 'Student Org' ? currentUser.organization : formData.organization.trim(),
       hall: formData.hall,
@@ -348,7 +391,7 @@ function App() {
       priority: getPriorityFromAttendees(Number(formData.attendees)),
     };
 
-    const conflict = requests.some((existing) => hasTimeConflict(existing, draftRequest));
+    const conflict = requests.some((existing) => hasTimeConflict(existing, requestPayload));
     if (conflict) {
       setSavedDraft('');
       setFormErrors((previous) => ({ ...previous, time: 'Time conflict detected for this hall. Choose another slot.' }));
@@ -356,11 +399,44 @@ function App() {
       return;
     }
 
-    setRequests((previous) => [draftRequest, ...previous]);
-    setSavedDraft('Request saved as ' + draftRequest.id + ' and sent for admin review.');
-    pushNotification(draftRequest.id + ' created and submitted to approval queue.', 'success');
-    setFormErrors({});
-    setFormData({ eventName: '', organization: '', hall: '', date: '', startTime: '', endTime: '', attendees: '' });
+    try {
+      const response = await fetch(`${API_BASE}/reservations`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestPayload),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json();
+        throw new Error(errorBody.error || 'Unable to save reservation.');
+      }
+
+      const createdReservation = await response.json();
+      const reservation = {
+        id: createdReservation.requestId || createdReservation._id,
+        requestId: createdReservation.requestId,
+        eventName: createdReservation.eventName,
+        organization: createdReservation.organization,
+        hall: createdReservation.hall,
+        date: createdReservation.date,
+        startTime: createdReservation.startTime,
+        endTime: createdReservation.endTime,
+        attendees: createdReservation.attendees,
+        status: createdReservation.status,
+        priority: createdReservation.priority,
+      };
+
+      setRequests((previous) => [reservation, ...previous]);
+      setSavedDraft('Request saved as ' + reservation.requestId + ' and sent for admin review.');
+      pushNotification(reservation.requestId + ' created and submitted to approval queue.', 'success');
+      setFormErrors({});
+      setFormData({ eventName: '', organization: '', hall: '', date: '', startTime: '', endTime: '', attendees: '' });
+    } catch (error) {
+      console.error('Submit reservation error:', error);
+      pushNotification(error.message || 'Unable to save reservation.', 'error');
+    }
   }
 
   function validateAuth() {
@@ -419,13 +495,36 @@ function App() {
     }, 700);
   }
 
-  function handleDecision(requestId, nextStatus) {
+  async function handleDecision(requestId, nextStatus) {
     if (!canAccess('admin')) {
       pushNotification('You are not authorized to manage approval decisions.', 'error');
       return;
     }
-    setRequests((previous) => previous.map((request) => (request.id === requestId ? { ...request, status: nextStatus } : request)));
-    pushNotification(requestId + ' marked as ' + nextStatus + '.', nextStatus === 'Approved' ? 'success' : 'info');
+
+    const action = nextStatus === 'Approved' ? 'approve' : 'reject';
+
+    try {
+      const response = await fetch(`${API_BASE}/approvals/${requestId}/${action}`, {
+        method: 'PUT',
+      });
+
+      if (!response.ok) {
+        const body = await response.json();
+        throw new Error(body.error || 'Unable to update reservation status.');
+      }
+
+      const updatedReservation = await response.json();
+      setRequests((previous) =>
+        previous.map((request) =>
+          request.id === requestId ? { ...request, status: updatedReservation.status } : request
+        )
+      );
+
+      pushNotification(requestId + ' marked as ' + nextStatus + '.', nextStatus === 'Approved' ? 'success' : 'info');
+    } catch (error) {
+      console.error('Approval decision error:', error);
+      pushNotification(error.message || 'Unable to update reservation status.', 'error');
+    }
   }
 
   function switchView(view) {
