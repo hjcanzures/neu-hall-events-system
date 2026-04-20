@@ -829,7 +829,7 @@ function App() {
                   name="organization"
                   value={currentRole === 'Student Org' ? currentUser.organization : formData.organization}
                   onChange={handleInputChange}
-                  disabled={currentRole === 'Student Org' && currentUser.isAuthenticated}
+
                 >
                   <option value="">Select organization</option>
                   {ORGANIZATIONS.map((organization) => (
