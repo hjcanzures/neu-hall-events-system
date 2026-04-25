@@ -1,5 +1,25 @@
 const Reservation = require('../models/Reservation');
 
+function toMinutes(timeValue) {
+  if (!timeValue || !timeValue.includes(':')) return 0;
+  const [h, m] = timeValue.split(':');
+  return Number(h) * 60 + Number(m);
+}
+
+function hasTimeConflict(existingRequest, candidateRequest) {
+  if (
+    existingRequest.hall !== candidateRequest.hall ||
+    existingRequest.date !== candidateRequest.date ||
+    existingRequest.status === 'Rejected'
+  ) return false;
+
+  const existingStart = toMinutes(existingRequest.startTime);
+  const existingEnd = toMinutes(existingRequest.endTime);
+  const candidateStart = toMinutes(candidateRequest.startTime);
+  const candidateEnd = toMinutes(candidateRequest.endTime);
+  return candidateStart < existingEnd && candidateEnd > existingStart;
+}
+
 const createReservation = async (req, res) => {
   try {
     const {
@@ -13,10 +33,18 @@ const createReservation = async (req, res) => {
       priority,
     } = req.body;
 
-    const organization = req.user.role === 'Student Org' ? req.user.organization : req.body.organization;
+    const organization = req.body.organization;
 
     if (!eventName || !organization || !hall || !date || !startTime || !endTime || !attendees) {
       return res.status(400).json({ error: 'Missing required reservation fields.' });
+    }
+
+    // Check for conflicts
+    const existingReservations = await Reservation.find({ hall, date });
+    const candidateRequest = { hall, date, startTime, endTime };
+    const conflicting = existingReservations.find((existing) => hasTimeConflict(existing, candidateRequest));
+    if (conflicting) {
+      return res.status(409).json({ error: `Time conflict with "${conflicting.eventName}" (${conflicting.startTime} - ${conflicting.endTime}). Choose another slot.` });
     }
 
     const requestId = `REQ-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -49,7 +77,7 @@ const createReservation = async (req, res) => {
 const getReservations = async (req, res) => {
   try {
     const query = {};
-    if (req.user.role === 'Student Org') {
+    if (req.user.role === 'Staff') {
       query.organization = req.user.organization;
     }
 

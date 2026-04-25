@@ -16,13 +16,13 @@ const inferProfileFromEmail = (email) => {
     return { role: 'Staff', organization: '' };
   }
   if (localPart.includes('acss')) {
-    return { role: 'Student Org', organization: 'ACSS' };
+    return { role: 'Student Org', organization: '' };
   }
   if (localPart.includes('paradigm')) {
-    return { role: 'Student Org', organization: 'Paradigm' };
+    return { role: 'Student Org', organization: '' };
   }
 
-  return { role: 'Student Org', organization: 'SITES' };
+  return { role: 'Student Org', organization: '' };
 };
 
 const generateToken = (user) => {
@@ -70,7 +70,7 @@ const register = async (req, res) => {
         fullName: user.fullName,
         email: user.email,
         role: user.role,
-        organization: user.organization,
+        organization: user.role === 'Student Org' ? '' : user.organization,
       },
     });
   } catch (error) {
@@ -105,7 +105,7 @@ const login = async (req, res) => {
         fullName: user.fullName,
         email: user.email,
         role: user.role,
-        organization: user.organization,
+        organization: user.role === 'Student Org' ? '' : user.organization,
       },
     });
   } catch (error) {
@@ -124,7 +124,7 @@ const getCurrentUser = async (req, res) => {
       fullName: req.user.fullName,
       email: req.user.email,
       role: req.user.role,
-      organization: req.user.organization,
+      organization: req.user.role === 'Student Org' ? '' : req.user.organization,
     },
   });
 };

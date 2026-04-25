@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import './App.css';
 
 const API_BASE = 'http://localhost:5000/api';
 const AUTH_STORAGE_KEY = 'neu-hall-events-auth';
-const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const HALLS = ['University Hall', 'Multipurpose Hall PSB'];
 const ORGANIZATIONS = ['Paradigm', 'ACSS', 'SITES', 'CCS'];
 const ROLE_PERMISSIONS = {
@@ -221,7 +220,10 @@ function App() {
   const [authErrors, setAuthErrors] = useState({});
   const [authToken, setAuthToken] = useState('');
   const [calendarDate, setCalendarDate] = useState(new Date());
-  const getAuthHeaders = () => (authToken ? { Authorization: `Bearer ${authToken}` } : {});
+  const getAuthHeaders = useCallback(
+    () => (authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    [authToken]
+  );
   const [authData, setAuthData] = useState({ fullName: '', email: '', password: '', confirmPassword: '' });
   const [notifications, setNotifications] = useState([
     { id: 'N-1', message: 'Welcome to the NEU Hall Events Management System.', type: 'info', exiting: false },
@@ -236,6 +238,7 @@ function App() {
     attendees: '',
   });
   const [formErrors, setFormErrors] = useState({});
+  const [conflictWarning, setConflictWarning] = useState('');
   const [savedDraft, setSavedDraft] = useState('');
 
   useEffect(() => {
@@ -263,9 +266,7 @@ function App() {
           name: data.user.fullName || data.user.email.split('@')[0],
           email: data.user.email,
         });
-        if (data.user.role === 'Student Org') {
-          setFormData((previous) => ({ ...previous, organization: data.user.organization }));
-        }
+        setFormData((previous) => ({ ...previous, organization: data.user.organization }));
         localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: parsed.token, user: data.user }));
         setActiveView('dashboard');
       } catch (error) {
@@ -311,7 +312,26 @@ function App() {
       }
     };
     loadSavedReservations();
-  }, [authToken]);
+  }, [authToken, getAuthHeaders]);
+
+  useEffect(() => {
+    if (!formData.hall || !formData.date || !formData.startTime || !formData.endTime) {
+      setConflictWarning('');
+      return;
+    }
+    const candidateRequest = {
+      hall: formData.hall,
+      date: formData.date,
+      startTime: formData.startTime,
+      endTime: formData.endTime,
+    };
+    const conflicting = requests.find((existing) => hasTimeConflict(existing, candidateRequest));
+    if (conflicting) {
+      setConflictWarning(`⚠️ Potential conflict with "${conflicting.eventName}" (${conflicting.startTime} - ${conflicting.endTime}).`);
+    } else {
+      setConflictWarning('');
+    }
+  }, [formData.hall, formData.date, formData.startTime, formData.endTime, requests]);
 
   const currentRole = currentUser.role;
   const permittedViews = ROLE_PERMISSIONS[currentRole] || ROLE_PERMISSIONS['Student Org'];
@@ -321,7 +341,10 @@ function App() {
   };
 
   const dashboardBaseRequests = useMemo(() => {
-    if (currentRole === 'Student Org' && currentUser.organization) {
+    if (currentRole === 'Student Org') {
+      return requests;
+    }
+    if (currentRole === 'Staff' && currentUser.organization) {
       return requests.filter((request) => request.organization === currentUser.organization);
     }
     return requests;
@@ -335,7 +358,7 @@ function App() {
     const hallsInUse = new Set(
       dashboardBaseRequests.filter((r) => r.status === 'Approved').map((r) => r.hall)
     ).size;
-    const firstLabel = currentRole === 'Student Org' ? 'My Requests' : 'Total Requests';
+    const firstLabel = 'Total Requests';
     return [
       { label: firstLabel, value: String(total) },
       { label: 'Approved', value: String(approved) },
@@ -343,7 +366,7 @@ function App() {
       { label: 'Rejected', value: String(rejected) },
       { label: 'Halls Active', value: String(hallsInUse) },
     ];
-  }, [currentRole, dashboardBaseRequests]);
+  }, [dashboardBaseRequests]);
 
   const filteredRequests = useMemo(() => {
     return dashboardBaseRequests.filter((request) => {
@@ -422,7 +445,7 @@ function App() {
     }
     const requestPayload = {
       eventName: formData.eventName.trim(),
-      organization: currentRole === 'Student Org' ? currentUser.organization : formData.organization.trim(),
+      organization: formData.organization.trim(),
       hall: formData.hall,
       date: formData.date,
       startTime: formData.startTime,
@@ -431,10 +454,10 @@ function App() {
       status: 'Pending',
       priority: getPriorityFromAttendees(Number(formData.attendees)),
     };
-    const conflict = requests.some((existing) => hasTimeConflict(existing, requestPayload));
-    if (conflict) {
+    const conflicting = requests.find((existing) => hasTimeConflict(existing, requestPayload));
+    if (conflicting) {
       setSavedDraft('');
-      setFormErrors((previous) => ({ ...previous, time: 'Time conflict detected for this hall. Choose another slot.' }));
+      setFormErrors((previous) => ({ ...previous, time: `Time conflict with "${conflicting.eventName}" (${conflicting.startTime} - ${conflicting.endTime}). Choose another slot.` }));
       pushNotification('Request blocked due to schedule conflict detection.', 'error');
       return;
     }
@@ -513,9 +536,7 @@ function App() {
       setCurrentUser(user);
       setAuthToken(data.token);
       localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: data.token, user: data.user }));
-      if (data.user.role === 'Student Org') {
-        setFormData((previous) => ({ ...previous, organization: data.user.organization }));
-      }
+      setFormData((previous) => ({ ...previous, organization: data.user.organization }));
       setAuthMessage(
         authMode === 'login'
           ? `Welcome back. Signed in as ${data.user.role}.`
@@ -588,7 +609,6 @@ function App() {
           {currentUser.isAuthenticated ? (
             <p className="active-role">
               Signed in as {currentUser.role}
-              {currentUser.organization ? ` - ${currentUser.organization}` : ''}
             </p>
           ) : null}
         </div>
@@ -817,9 +837,9 @@ function App() {
                 <label htmlFor="organization">Organization</label>
                 <select
                   id="organization" name="organization"
-                  value={currentRole === 'Student Org' ? currentUser.organization : formData.organization}
+                  value={formData.organization}
                   onChange={handleInputChange}
-                  disabled={currentRole === 'Student Org' && currentUser.isAuthenticated}
+                  disabled={currentUser.organization !== ''}
                 >
                   <option value="">Select organization</option>
                   {ORGANIZATIONS.map((organization) => (
@@ -865,6 +885,7 @@ function App() {
                   </div>
                 </div>
                 {formErrors.time ? <p className="field-error">{formErrors.time}</p> : null}
+                {conflictWarning ? <p className="field-warning">{conflictWarning}</p> : null}
 
                 <button type="submit" className="solid-btn form-submit">Submit for Approval</button>
                 <p className="draft-message" aria-live="polite">{savedDraft}</p>
