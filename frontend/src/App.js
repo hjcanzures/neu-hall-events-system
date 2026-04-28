@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef} from 'react';
 import './App.css';
 
 const API_BASE = 'http://localhost:5000/api';
@@ -10,57 +10,6 @@ const ROLE_PERMISSIONS = {
   Staff: ['dashboard', 'calendar'],
   'Student Org': ['dashboard', 'request', 'calendar'],
 };
-
-const INITIAL_REQUESTS = [
-  {
-    id: 'REQ-4021',
-    eventName: 'Leadership Summit',
-    organization: 'CCS',
-    hall: 'University Hall',
-    date: '2026-03-24',
-    startTime: '09:00',
-    endTime: '13:00',
-    attendees: 180,
-    status: 'Approved',
-    priority: 'High',
-  },
-  {
-    id: 'REQ-4022',
-    eventName: 'Innovation Fair',
-    organization: 'SITES',
-    hall: 'Multipurpose Hall PSB',
-    date: '2026-03-28',
-    startTime: '11:00',
-    endTime: '16:00',
-    attendees: 140,
-    status: 'Pending',
-    priority: 'Medium',
-  },
-  {
-    id: 'REQ-4023',
-    eventName: 'Campus Mixer',
-    organization: 'Paradigm',
-    hall: 'University Hall',
-    date: '2026-04-02',
-    startTime: '15:00',
-    endTime: '19:00',
-    attendees: 220,
-    status: 'Pending',
-    priority: 'High',
-  },
-  {
-    id: 'REQ-4024',
-    eventName: 'Choir Rehearsal',
-    organization: 'ACSS',
-    hall: 'Multipurpose Hall PSB',
-    date: '2026-03-25',
-    startTime: '13:00',
-    endTime: '16:00',
-    attendees: 80,
-    status: 'Rejected',
-    priority: 'Low',
-  },
-];
 
 function buildStatusClass(status) {
   return status.toLowerCase().replace(' ', '-');
@@ -105,15 +54,12 @@ function formatDisplayDate(rawDate) {
 function CalendarView({ requests, calendarDate, setCalendarDate }) {
   const year = calendarDate.getFullYear();
   const month = calendarDate.getMonth();
+  const [popup, setPopup] = useState({ visible: false, event: null, x: 0, y: 0 });
+  const hideTimer = useRef(null);
 
-  const monthLabel = calendarDate.toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  });
-
+  const monthLabel = calendarDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-
   const cells = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
@@ -132,9 +78,31 @@ function CalendarView({ requests, calendarDate, setCalendarDate }) {
 
   const today = new Date();
   const isToday = (day) =>
-    day === today.getDate() &&
-    month === today.getMonth() &&
-    year === today.getFullYear();
+    day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+
+  function formatTime(t) {
+    if (!t) return '';
+    const [h, m] = t.split(':');
+    const hr = Number(h);
+    return `${hr % 12 || 12}:${m} ${hr < 12 ? 'AM' : 'PM'}`;
+  }
+
+  function handlePillEnter(ev, pillEl) {
+    clearTimeout(hideTimer.current);
+    const rect = pillEl.getBoundingClientRect();
+    const pw = 260, ph = 200;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let x = rect.left + rect.width / 2 - pw / 2;
+    let y = rect.top - ph - 10;
+    if (y < 10) y = rect.bottom + 10;
+    if (x + pw > vw - 10) x = vw - pw - 10;
+    if (x < 10) x = 10;
+    setPopup({ visible: true, event: ev, x, y });
+  }
+
+  function handlePillLeave() {
+    hideTimer.current = setTimeout(() => setPopup((p) => ({ ...p, visible: false })), 120);
+  }
 
   return (
     <section className="workspace-grid single-focus">
@@ -144,19 +112,16 @@ function CalendarView({ requests, calendarDate, setCalendarDate }) {
           <span>Monthly view</span>
         </div>
 
-        {/* Month navigation */}
         <div className="cal-nav">
           <button type="button" className="cal-nav-btn" onClick={prevMonth}>&#8592;</button>
           <span className="cal-month-label">{monthLabel}</span>
           <button type="button" className="cal-nav-btn" onClick={nextMonth}>&#8594;</button>
         </div>
 
-        {/* Calendar grid */}
         <div className="cal-grid">
           {DAY_HEADERS.map((d) => (
             <div key={d} className="cal-day-header">{d}</div>
           ))}
-
           {cells.map((day, idx) => {
             const events = getEventsForDay(day);
             return (
@@ -172,7 +137,8 @@ function CalendarView({ requests, calendarDate, setCalendarDate }) {
                         <div
                           key={ev.id}
                           className={`cal-event-pill cal-event--${ev.status.toLowerCase()}`}
-                          title={`${ev.eventName} · ${ev.startTime}–${ev.endTime}`}
+                          onMouseEnter={(e) => handlePillEnter(ev, e.currentTarget)}
+                          onMouseLeave={handlePillLeave}
                         >
                           {ev.eventName}
                         </div>
@@ -188,13 +154,44 @@ function CalendarView({ requests, calendarDate, setCalendarDate }) {
           })}
         </div>
 
-        {/* Legend */}
         <div className="cal-legend">
           <span className="cal-legend-item cal-legend--approved">Approved</span>
           <span className="cal-legend-item cal-legend--pending">Pending</span>
           <span className="cal-legend-item cal-legend--rejected">Rejected</span>
         </div>
       </article>
+
+      {/* Floating event popup — rendered at root level via fixed positioning */}
+      {popup.event && (
+        <div
+          className={`cal-event-popup${popup.visible ? ' cal-popup-visible' : ''}`}
+          style={{ left: popup.x, top: popup.y }}
+        >
+          <div className="cal-popup-inner">
+            <div className={`popup-status-bar ${popup.event.status.toLowerCase()}`} />
+            <p className="popup-event-title">{popup.event.eventName}</p>
+            <div className="popup-row">
+              <span className="popup-icon">🏛</span>
+              <span>{popup.event.hall}</span>
+            </div>
+            <div className="popup-row">
+              <span className="popup-icon">🕐</span>
+              <span>{formatTime(popup.event.startTime)} – {formatTime(popup.event.endTime)}</span>
+            </div>
+            <div className="popup-row">
+              <span className="popup-icon">👥</span>
+              <span>{popup.event.attendees} attendees · {popup.event.priority} priority</span>
+            </div>
+            <div className="popup-row">
+              <span className="popup-icon">🏷</span>
+              <span>{popup.event.organization}</span>
+            </div>
+            <span className={`popup-badge ${popup.event.status.toLowerCase()}`}>
+              {popup.event.status}
+            </span>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -209,7 +206,7 @@ function App() {
     organization: 'SITES',
     name: 'Guest',
   });
-  const [requests, setRequests] = useState(INITIAL_REQUESTS);
+  const [requests, setRequests] = useState([]);
   const [adminFilter, setAdminFilter] = useState('Pending');
   const [dashboardStatus, setDashboardStatus] = useState('all');
   const [dashboardSearch, setDashboardSearch] = useState('');
@@ -297,16 +294,7 @@ function App() {
           status: reservation.status,
           priority: reservation.priority,
         }));
-        setRequests((previous) => {
-          const allRequests = [...previous, ...savedRequests];
-          const seenIds = new Set();
-          return allRequests.filter((request) => {
-            const uniqueKey = request.requestId || request.id || request._id;
-            if (seenIds.has(uniqueKey)) return false;
-            seenIds.add(uniqueKey);
-            return true;
-          });
-        });
+        setRequests(savedRequests);
       } catch (error) {
         console.error('Unable to load saved reservations:', error);
       }
