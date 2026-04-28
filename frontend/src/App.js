@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef} from 'react';
 import './App.css';
 
 const API_BASE = 'http://localhost:5000/api';
@@ -105,15 +105,12 @@ function formatDisplayDate(rawDate) {
 function CalendarView({ requests, calendarDate, setCalendarDate }) {
   const year = calendarDate.getFullYear();
   const month = calendarDate.getMonth();
+  const [popup, setPopup] = useState({ visible: false, event: null, x: 0, y: 0 });
+  const hideTimer = useRef(null);
 
-  const monthLabel = calendarDate.toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  });
-
+  const monthLabel = calendarDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-
   const cells = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
@@ -132,9 +129,31 @@ function CalendarView({ requests, calendarDate, setCalendarDate }) {
 
   const today = new Date();
   const isToday = (day) =>
-    day === today.getDate() &&
-    month === today.getMonth() &&
-    year === today.getFullYear();
+    day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+
+  function formatTime(t) {
+    if (!t) return '';
+    const [h, m] = t.split(':');
+    const hr = Number(h);
+    return `${hr % 12 || 12}:${m} ${hr < 12 ? 'AM' : 'PM'}`;
+  }
+
+  function handlePillEnter(ev, pillEl) {
+    clearTimeout(hideTimer.current);
+    const rect = pillEl.getBoundingClientRect();
+    const pw = 260, ph = 200;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let x = rect.left + rect.width / 2 - pw / 2;
+    let y = rect.top - ph - 10;
+    if (y < 10) y = rect.bottom + 10;
+    if (x + pw > vw - 10) x = vw - pw - 10;
+    if (x < 10) x = 10;
+    setPopup({ visible: true, event: ev, x, y });
+  }
+
+  function handlePillLeave() {
+    hideTimer.current = setTimeout(() => setPopup((p) => ({ ...p, visible: false })), 120);
+  }
 
   return (
     <section className="workspace-grid single-focus">
@@ -144,19 +163,16 @@ function CalendarView({ requests, calendarDate, setCalendarDate }) {
           <span>Monthly view</span>
         </div>
 
-        {/* Month navigation */}
         <div className="cal-nav">
           <button type="button" className="cal-nav-btn" onClick={prevMonth}>&#8592;</button>
           <span className="cal-month-label">{monthLabel}</span>
           <button type="button" className="cal-nav-btn" onClick={nextMonth}>&#8594;</button>
         </div>
 
-        {/* Calendar grid */}
         <div className="cal-grid">
           {DAY_HEADERS.map((d) => (
             <div key={d} className="cal-day-header">{d}</div>
           ))}
-
           {cells.map((day, idx) => {
             const events = getEventsForDay(day);
             return (
@@ -172,7 +188,8 @@ function CalendarView({ requests, calendarDate, setCalendarDate }) {
                         <div
                           key={ev.id}
                           className={`cal-event-pill cal-event--${ev.status.toLowerCase()}`}
-                          title={`${ev.eventName} · ${ev.startTime}–${ev.endTime}`}
+                          onMouseEnter={(e) => handlePillEnter(ev, e.currentTarget)}
+                          onMouseLeave={handlePillLeave}
                         >
                           {ev.eventName}
                         </div>
@@ -188,13 +205,44 @@ function CalendarView({ requests, calendarDate, setCalendarDate }) {
           })}
         </div>
 
-        {/* Legend */}
         <div className="cal-legend">
           <span className="cal-legend-item cal-legend--approved">Approved</span>
           <span className="cal-legend-item cal-legend--pending">Pending</span>
           <span className="cal-legend-item cal-legend--rejected">Rejected</span>
         </div>
       </article>
+
+      {/* Floating event popup — rendered at root level via fixed positioning */}
+      {popup.event && (
+        <div
+          className={`cal-event-popup${popup.visible ? ' cal-popup-visible' : ''}`}
+          style={{ left: popup.x, top: popup.y }}
+        >
+          <div className="cal-popup-inner">
+            <div className={`popup-status-bar ${popup.event.status.toLowerCase()}`} />
+            <p className="popup-event-title">{popup.event.eventName}</p>
+            <div className="popup-row">
+              <span className="popup-icon">🏛</span>
+              <span>{popup.event.hall}</span>
+            </div>
+            <div className="popup-row">
+              <span className="popup-icon">🕐</span>
+              <span>{formatTime(popup.event.startTime)} – {formatTime(popup.event.endTime)}</span>
+            </div>
+            <div className="popup-row">
+              <span className="popup-icon">👥</span>
+              <span>{popup.event.attendees} attendees · {popup.event.priority} priority</span>
+            </div>
+            <div className="popup-row">
+              <span className="popup-icon">🏷</span>
+              <span>{popup.event.organization}</span>
+            </div>
+            <span className={`popup-badge ${popup.event.status.toLowerCase()}`}>
+              {popup.event.status}
+            </span>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
