@@ -11,57 +11,6 @@ const ROLE_PERMISSIONS = {
   'Student Org': ['dashboard', 'request', 'calendar'],
 };
 
-const INITIAL_REQUESTS = [
-  {
-    id: 'REQ-4021',
-    eventName: 'Leadership Summit',
-    organization: 'CCS',
-    hall: 'University Hall',
-    date: '2026-03-24',
-    startTime: '09:00',
-    endTime: '13:00',
-    attendees: 180,
-    status: 'Approved',
-    priority: 'High',
-  },
-  {
-    id: 'REQ-4022',
-    eventName: 'Innovation Fair',
-    organization: 'SITES',
-    hall: 'Multipurpose Hall PSB',
-    date: '2026-03-28',
-    startTime: '11:00',
-    endTime: '16:00',
-    attendees: 140,
-    status: 'Pending',
-    priority: 'Medium',
-  },
-  {
-    id: 'REQ-4023',
-    eventName: 'Campus Mixer',
-    organization: 'Paradigm',
-    hall: 'University Hall',
-    date: '2026-04-02',
-    startTime: '15:00',
-    endTime: '19:00',
-    attendees: 220,
-    status: 'Pending',
-    priority: 'High',
-  },
-  {
-    id: 'REQ-4024',
-    eventName: 'Choir Rehearsal',
-    organization: 'ACSS',
-    hall: 'Multipurpose Hall PSB',
-    date: '2026-03-25',
-    startTime: '13:00',
-    endTime: '16:00',
-    attendees: 80,
-    status: 'Rejected',
-    priority: 'Low',
-  },
-];
-
 function buildStatusClass(status) {
   return status.toLowerCase().replace(' ', '-');
 }
@@ -209,7 +158,7 @@ function App() {
     organization: 'SITES',
     name: 'Guest',
   });
-  const [requests, setRequests] = useState(INITIAL_REQUESTS);
+  const [requests, setRequests] = useState([]);
   const [adminFilter, setAdminFilter] = useState('Pending');
   const [dashboardStatus, setDashboardStatus] = useState('all');
   const [dashboardSearch, setDashboardSearch] = useState('');
@@ -297,16 +246,7 @@ function App() {
           status: reservation.status,
           priority: reservation.priority,
         }));
-        setRequests((previous) => {
-          const allRequests = [...previous, ...savedRequests];
-          const seenIds = new Set();
-          return allRequests.filter((request) => {
-            const uniqueKey = request.requestId || request.id || request._id;
-            if (seenIds.has(uniqueKey)) return false;
-            seenIds.add(uniqueKey);
-            return true;
-          });
-        });
+        setRequests(savedRequests);
       } catch (error) {
         console.error('Unable to load saved reservations:', error);
       }
