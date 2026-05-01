@@ -91,7 +91,7 @@ function CalendarView({ requests, calendarDate, setCalendarDate }) {
     clearTimeout(hideTimer.current);
     const rect = pillEl.getBoundingClientRect();
     const pw = 260, ph = 200;
-    const vw = window.innerWidth, vh = window.innerHeight;
+    const vw = window.innerWidth;
     let x = rect.left + rect.width / 2 - pw / 2;
     let y = rect.top - ph - 10;
     if (y < 10) y = rect.bottom + 10;
