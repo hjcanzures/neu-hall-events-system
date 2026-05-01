@@ -60,6 +60,7 @@ const createReservation = async (req, res) => {
 // ---------------------------------------------------------------------------
 const getReservations = async (req, res) => {
   try {
+    const reservations = await Reservation.find().sort({ createdAt: -1 });
     const query = {};
     if (req.user.role === 'Student Org') {
       query.organization = req.user.organization;

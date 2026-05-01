@@ -5,24 +5,18 @@ const User = require('../models/User');
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 const JWT_EXPIRES_IN = '7d';
 
-const inferProfileFromEmail = (email) => {
-  const normalized = (email || '').trim().toLowerCase();
-  const localPart = normalized.split('@')[0] || '';
+const inferProfileFromEmail = () => ({ role: 'Student', organization: '' });
 
-  if (localPart.includes('admin')) {
-    return { role: 'Admin', organization: '' };
-  }
-  if (localPart.includes('staff')) {
-    return { role: 'Staff', organization: '' };
-  }
-  if (localPart.includes('acss')) {
-    return { role: 'Student Org', organization: '' };
-  }
-  if (localPart.includes('paradigm')) {
-    return { role: 'Student Org', organization: '' };
-  }
+const normalizeRole = (role) => (role === 'Student Org' ? 'Student' : role);
 
-  return { role: 'Student Org', organization: '' };
+const serializeUser = (user) => {
+  const role = normalizeRole(user.role);
+  return {
+    fullName: user.fullName,
+    email: user.email,
+    role,
+    organization: role === 'Student' ? '' : user.organization,
+  };
 };
 
 const generateToken = (user) => {
@@ -51,7 +45,7 @@ const register = async (req, res) => {
       return res.status(409).json({ error: 'An account with that email already exists.' });
     }
 
-    const profile = inferProfileFromEmail(normalizedEmail);
+    const profile = inferProfileFromEmail();
     const passwordHash = await bcrypt.hash(password, 10);
 
     const user = await User.create({
@@ -62,17 +56,7 @@ const register = async (req, res) => {
       organization: profile.organization,
     });
 
-    const token = generateToken(user);
-
-    return res.status(201).json({
-      token,
-      user: {
-        fullName: user.fullName,
-        email: user.email,
-        role: user.role,
-        organization: user.role === 'Student Org' ? '' : user.organization,
-      },
-    });
+    return res.status(201).json({ token: generateToken(user), user: serializeUser(user) });
   } catch (error) {
     console.error('Register error:', error);
     return res.status(500).json({ error: 'Unable to register user.' });
@@ -97,17 +81,7 @@ const login = async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
-    const token = generateToken(user);
-
-    return res.json({
-      token,
-      user: {
-        fullName: user.fullName,
-        email: user.email,
-        role: user.role,
-        organization: user.role === 'Student Org' ? '' : user.organization,
-      },
-    });
+    return res.json({ token: generateToken(user), user: serializeUser(user) });
   } catch (error) {
     console.error('Login error:', error);
     return res.status(500).json({ error: 'Unable to authenticate user.' });
@@ -119,14 +93,7 @@ const getCurrentUser = async (req, res) => {
     return res.status(401).json({ error: 'Not authenticated.' });
   }
 
-  return res.json({
-    user: {
-      fullName: req.user.fullName,
-      email: req.user.email,
-      role: req.user.role,
-      organization: req.user.role === 'Student Org' ? '' : req.user.organization,
-    },
-  });
+  return res.json({ user: serializeUser(req.user) });
 };
 
 module.exports = {
