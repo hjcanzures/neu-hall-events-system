@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, useRef} from 'react';
+import axios from 'axios';
 import './App.css';
 
 const API_BASE = 'http://localhost:5000/api';
+const apiClient = axios.create({ baseURL: API_BASE });
 const AUTH_STORAGE_KEY = 'neu-hall-events-auth';
 const HALLS = ['University Hall', 'Multipurpose Hall PSB'];
 const ORGANIZATIONS = ['Paradigm', 'ACSS', 'SITES', 'CCS'];
 const ROLE_PERMISSIONS = {
   Admin: ['dashboard', 'admin', 'calendar'],
-  Staff: ['dashboard', 'calendar'],
-  'Student Org': ['dashboard', 'request', 'calendar'],
+  Student: ['dashboard', 'request', 'calendar'],
 };
 
 function buildStatusClass(status) {
@@ -202,8 +203,8 @@ function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState({
     isAuthenticated: false,
-    role: 'Student Org',
-    organization: 'SITES',
+    role: 'Student',
+    organization: '',
     name: 'Guest',
   });
   const [requests, setRequests] = useState([]);
@@ -250,11 +251,9 @@ function App() {
       try {
         const parsed = JSON.parse(saved);
         if (!parsed?.token) throw new Error('Invalid auth state');
-        const response = await fetch(`${API_BASE}/auth/me`, {
+        const { data } = await apiClient.get('/auth/me', {
           headers: { Authorization: `Bearer ${parsed.token}` },
         });
-        if (!response.ok) throw new Error('Session expired');
-        const data = await response.json();
         setAuthToken(parsed.token);
         setCurrentUser({
           isAuthenticated: true,
@@ -278,9 +277,7 @@ function App() {
     const loadSavedReservations = async () => {
       if (!authToken) return;
       try {
-        const response = await fetch(`${API_BASE}/reservations`, { headers: { ...getAuthHeaders() } });
-        if (!response.ok) throw new Error('Unable to load reservations.');
-        const data = await response.json();
+        const { data } = await apiClient.get('/reservations', { headers: { ...getAuthHeaders() } });
         const savedRequests = data.map((reservation) => ({
           id: reservation.requestId || reservation._id,
           requestId: reservation.requestId,
@@ -322,29 +319,19 @@ function App() {
   }, [formData.hall, formData.date, formData.startTime, formData.endTime, requests]);
 
   const currentRole = currentUser.role;
-  const permittedViews = ROLE_PERMISSIONS[currentRole] || ROLE_PERMISSIONS['Student Org'];
+  const permittedViews = ROLE_PERMISSIONS[currentRole] || ROLE_PERMISSIONS['Student'];
   const canAccess = (view) => {
     if (view === 'dashboard') return true;
     return currentUser.isAuthenticated && permittedViews.includes(view);
   };
 
-  const dashboardBaseRequests = useMemo(() => {
-    if (currentRole === 'Student Org') {
-      return requests;
-    }
-    if (currentRole === 'Staff' && currentUser.organization) {
-      return requests.filter((request) => request.organization === currentUser.organization);
-    }
-    return requests;
-  }, [currentRole, currentUser.organization, requests]);
-
   const dashboardStats = useMemo(() => {
-    const total = dashboardBaseRequests.length;
-    const approved = dashboardBaseRequests.filter((r) => r.status === 'Approved').length;
-    const pending = dashboardBaseRequests.filter((r) => r.status === 'Pending').length;
-    const rejected = dashboardBaseRequests.filter((r) => r.status === 'Rejected').length;
+    const total = requests.length;
+    const approved = requests.filter((r) => r.status === 'Approved').length;
+    const pending = requests.filter((r) => r.status === 'Pending').length;
+    const rejected = requests.filter((r) => r.status === 'Rejected').length;
     const hallsInUse = new Set(
-      dashboardBaseRequests.filter((r) => r.status === 'Approved').map((r) => r.hall)
+      requests.filter((r) => r.status === 'Approved').map((r) => r.hall)
     ).size;
     const firstLabel = 'Total Requests';
     return [
@@ -354,10 +341,10 @@ function App() {
       { label: 'Rejected', value: String(rejected) },
       { label: 'Halls Active', value: String(hallsInUse) },
     ];
-  }, [dashboardBaseRequests]);
+  }, [requests]);
 
   const filteredRequests = useMemo(() => {
-    return dashboardBaseRequests.filter((request) => {
+    return requests.filter((request) => {
       const matchesStatus = dashboardStatus === 'all' || request.status === dashboardStatus;
       const query = dashboardSearch.trim().toLowerCase();
       const matchesSearch =
@@ -368,11 +355,11 @@ function App() {
         request.id.toLowerCase().includes(query);
       return matchesStatus && matchesSearch;
     });
-  }, [dashboardBaseRequests, dashboardSearch, dashboardStatus]);
+  }, [requests, dashboardSearch, dashboardStatus]);
 
   const featuredEvents = useMemo(
-    () => [...dashboardBaseRequests].sort((a, b) => new Date(a.date) - new Date(b.date)).slice(0, 6),
-    [dashboardBaseRequests]
+    () => [...requests].sort((a, b) => new Date(a.date) - new Date(b.date)).slice(0, 6),
+    [requests]
   );
 
   const adminQueue = useMemo(
@@ -450,16 +437,9 @@ function App() {
       return;
     }
     try {
-      const response = await fetch(`${API_BASE}/reservations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify(requestPayload),
+      const { data: createdReservation } = await apiClient.post('/reservations', requestPayload, {
+        headers: { ...getAuthHeaders() },
       });
-      if (!response.ok) {
-        const errorBody = await response.json();
-        throw new Error(errorBody.error || 'Unable to save reservation.');
-      }
-      const createdReservation = await response.json();
       const reservation = {
         id: createdReservation.requestId || createdReservation._id,
         requestId: createdReservation.requestId,
@@ -503,17 +483,11 @@ function App() {
     setAuthLoading(true);
     setAuthMessage('');
     try {
-      const response = await fetch(`${API_BASE}/auth/${authMode}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fullName: authData.fullName.trim(),
-          email: authData.email.trim(),
-          password: authData.password,
-        }),
+      const { data } = await apiClient.post(`/auth/${authMode}`, {
+        fullName: authData.fullName.trim(),
+        email: authData.email.trim(),
+        password: authData.password,
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Unable to authenticate.');
       const user = {
         isAuthenticated: true,
         role: data.user.role,
@@ -547,15 +521,9 @@ function App() {
     }
     const action = nextStatus === 'Approved' ? 'approve' : 'reject';
     try {
-      const response = await fetch(`${API_BASE}/approvals/${requestId}/${action}`, {
-        method: 'PUT',
+      const { data: updatedReservation } = await apiClient.put(`/approvals/${requestId}/${action}`, null, {
         headers: { ...getAuthHeaders() },
       });
-      if (!response.ok) {
-        const body = await response.json();
-        throw new Error(body.error || 'Unable to update reservation status.');
-      }
-      const updatedReservation = await response.json();
       setRequests((previous) =>
         previous.map((request) =>
           request.id === requestId ? { ...request, status: updatedReservation.status } : request
@@ -617,7 +585,7 @@ function App() {
               className="ghost-btn-danger"
               type="button"
               onClick={() => {
-                setCurrentUser({ isAuthenticated: false, role: 'Student Org', organization: 'SITES', name: 'Guest' });
+                setCurrentUser({ isAuthenticated: false, role: 'Student', organization: '', name: 'Guest' });
                 setAuthToken('');
                 localStorage.removeItem(AUTH_STORAGE_KEY);
                 setAuthMessage('');

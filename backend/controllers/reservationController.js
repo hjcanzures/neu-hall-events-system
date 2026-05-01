@@ -76,12 +76,7 @@ const createReservation = async (req, res) => {
 
 const getReservations = async (req, res) => {
   try {
-    const query = {};
-    if (req.user.role === 'Staff') {
-      query.organization = req.user.organization;
-    }
-
-    const reservations = await Reservation.find(query).sort({ createdAt: -1 });
+    const reservations = await Reservation.find().sort({ createdAt: -1 });
     return res.json(reservations);
   } catch (error) {
     console.error('Get reservations error:', error);

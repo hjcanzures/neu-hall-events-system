@@ -42,6 +42,8 @@ const reservationRoutes = require("./routes/reservationRoutes");
 const hallRoutes = require("./routes/hallRoutes");
 const approvalRoutes = require("./routes/approvalRoutes");
 const eventRoutes = require("./routes/eventRoutes");
+const userRoutes = require("./routes/userRoutes");
+const studentRoutes = require("./routes/studentRoutes");
 
 // Route Middleware
 app.use("/api/auth", authRoutes);
@@ -49,6 +51,8 @@ app.use("/api/reservations", reservationRoutes);
 app.use("/api/halls", hallRoutes);
 app.use("/api/approvals", approvalRoutes);
 app.use("/api/events", eventRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/students", studentRoutes);
 
 // Test route
 app.get("/", (req, res) => {
