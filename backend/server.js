@@ -7,15 +7,45 @@ const User = require('./models/User');
 
 dotenv.config();
 
-// 1. Initialize app BEFORE using it ✅
+// 1. Initialize app
 const app = express();
+
+// 2. Essential Middleware - Move express.json() up
+app.use(express.json());
+
+// 3. Configure CORS properly
+// Note: Ensure FRONTEND_URL in Railway does NOT have a trailing slash
+const allowedOrigins = [
+  process.env.FRONTEND_URL, 
+  'https://neu-hall-events-system.vercel.app', 
+  'http://localhost:5173',
+  'http://localhost:3000',
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl) 
+    // or if the origin is in our allowed list
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn("Blocked by CORS Policy:", origin); 
+      // Passing 'false' instead of an Error object prevents 
+      // the server from returning a 500 status code.
+      callback(null, false);
+    }
+  },
+  credentials: true,
+  optionsSuccessStatus: 200 // Essential for handling Preflight (OPTIONS) successfully
+}));
 
 const createDefaultAdmin = async () => {
   try {
-    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@neu.edu.ph').trim().toLowerCase();
+    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@neu-hall.edu.ph').trim().toLowerCase();
 
     if (!process.env.ADMIN_PASSWORD) {
-      throw new Error('ADMIN_PASSWORD env variable is required');
+      console.warn('Warning: ADMIN_PASSWORD env variable is not set. Admin creation skipped.');
+      return;
     }
     const adminPassword = process.env.ADMIN_PASSWORD;
 
@@ -39,31 +69,6 @@ const createDefaultAdmin = async () => {
     console.error('Failed to create default admin:', err.message);
   }
 };
-
-// 2. Configure CORS properly ✅
-const allowedOrigins = [
-  process.env.FRONTEND_URL, // Ensure this is set to https://neu-hall-events-system.vercel.app in Railway
-  'https://neu-hall-events-system.vercel.app', 
-  'http://localhost:5173',
-  'http://localhost:3000',
-].filter(Boolean);
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl) 
-    // or if the origin is in our allowed list
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log("Blocked by CORS:", origin); // Helpful for debugging
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-}));
-
-// Middleware
-app.use(express.json());
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
@@ -91,6 +96,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Global Error Handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(err.status || 500).json({
