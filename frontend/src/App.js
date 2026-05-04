@@ -3,7 +3,7 @@ import axios from 'axios';
 import './App.css';
 
 // ✅ Uses VITE_API_URL env variable in production, falls back to localhost for local dev
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000') + '/api';
+const API_BASE = (process.env.REACT_APP_API_URL || 'http://localhost:5000') + '/api';
 const apiClient = axios.create({
   baseURL: API_BASE,
   withCredentials: true, // ✅ needed if your backend uses cookies or sends credentials
