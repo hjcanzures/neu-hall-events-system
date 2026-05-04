@@ -2,8 +2,25 @@ import { useCallback, useEffect, useMemo, useState, useRef} from 'react';
 import axios from 'axios';
 import './App.css';
 
-const API_BASE = 'http://localhost:5000/api';
-const apiClient = axios.create({ baseURL: API_BASE });
+// ✅ Uses VITE_API_URL env variable in production, falls back to localhost for local dev
+const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000') + '/api';
+const apiClient = axios.create({
+  baseURL: API_BASE,
+  withCredentials: true, // ✅ needed if your backend uses cookies or sends credentials
+});
+
+// ✅ Global response interceptor — catches auth errors app-wide
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('neu-hall-events-auth');
+      window.location.href = '/'; // force re-login on token expiry
+    }
+    return Promise.reject(error.response?.data || error);
+  }
+);
+
 const AUTH_STORAGE_KEY = 'neu-hall-events-auth';
 const HALLS = ['University Hall', 'Multipurpose Hall PSB'];
 const ORGANIZATIONS = ['Paradigm', 'ACSS', 'SITES', 'CCS'];
@@ -266,6 +283,7 @@ function App() {
         localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: parsed.token, user: data.user }));
         setActiveView('dashboard');
       } catch (error) {
+        // ✅ Silently clear invalid/expired stored session
         localStorage.removeItem(AUTH_STORAGE_KEY);
         setAuthToken('');
       }
@@ -294,6 +312,8 @@ function App() {
         setRequests(savedRequests);
       } catch (error) {
         console.error('Unable to load saved reservations:', error);
+        // ✅ Show user-facing error instead of silently failing
+        pushNotification('Could not load reservations. Please refresh or log in again.', 'error');
       }
     };
     loadSavedReservations();
@@ -326,22 +346,28 @@ function App() {
   };
 
   const dashboardStats = useMemo(() => {
-    const total = requests.length;
-    const approved = requests.filter((r) => r.status === 'Approved').length;
-    const pending = requests.filter((r) => r.status === 'Pending').length;
-    const rejected = requests.filter((r) => r.status === 'Rejected').length;
-    const hallsInUse = new Set(
-      requests.filter((r) => r.status === 'Approved').map((r) => r.hall)
-    ).size;
-    const firstLabel = 'Total Requests';
-    return [
-      { label: firstLabel, value: String(total) },
-      { label: 'Approved', value: String(approved) },
-      { label: 'Pending Review', value: String(pending) },
-      { label: 'Rejected', value: String(rejected) },
-      { label: 'Halls Active', value: String(hallsInUse) },
-    ];
-  }, [requests]);
+  // Return empty stats if the user is not an Admin
+  if (currentUser.role !== 'Admin') {
+    return [];
+  }
+
+  const total = requests.length;
+  const approved = requests.filter((r) => r.status === 'Approved').length;
+  const pending = requests.filter((r) => r.status === 'Pending').length;
+  const rejected = requests.filter((r) => r.status === 'Rejected').length;
+  const hallsInUse = new Set(
+    requests.filter((r) => r.status === 'Approved').map((r) => r.hall)
+  ).size;
+
+  const firstLabel = 'Total Requests';
+  return [
+    { label: firstLabel, value: String(total) },
+    { label: 'Approved', value: String(approved) },
+    { label: 'Pending Review', value: String(pending) },
+    { label: 'Rejected', value: String(rejected) },
+    { label: 'Halls Active', value: String(hallsInUse) },
+  ];
+}, [requests, currentUser.role]);
 
   const filteredRequests = useMemo(() => {
     return requests.filter((request) => {
@@ -460,7 +486,8 @@ function App() {
       setFormData({ eventName: '', organization: '', hall: '', date: '', startTime: '', endTime: '', attendees: '' });
     } catch (error) {
       console.error('Submit reservation error:', error);
-      pushNotification(error.message || 'Unable to save reservation.', 'error');
+      // ✅ Show backend error message if available, otherwise generic fallback
+      pushNotification(error?.message || 'Unable to save reservation. Please try again.', 'error');
     }
   }
 
@@ -508,7 +535,8 @@ function App() {
       pushNotification(`Welcome, ${data.user.role}!`, 'success');
     } catch (error) {
       console.error('Auth submit error:', error);
-      setAuthMessage(error.message || 'Unable to authenticate.');
+      // ✅ Show specific backend message (e.g. "Invalid credentials") if available
+      setAuthMessage(error?.message || 'Unable to authenticate. Please check your credentials.');
     } finally {
       setAuthLoading(false);
     }
@@ -532,8 +560,19 @@ function App() {
       pushNotification(requestId + ' marked as ' + nextStatus + '.', nextStatus === 'Approved' ? 'success' : 'info');
     } catch (error) {
       console.error('Approval decision error:', error);
-      pushNotification(error.message || 'Unable to update reservation status.', 'error');
+      pushNotification(error?.message || 'Unable to update reservation status.', 'error');
     }
+  }
+
+  function handleLogout() {
+    setCurrentUser({ isAuthenticated: false, role: 'Student', organization: '', name: 'Guest' });
+    setAuthToken('');
+    setRequests([]); // ✅ Clear loaded data on logout
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    setAuthMessage('');
+    setAuthData({ fullName: '', email: '', password: '', confirmPassword: '' });
+    setActiveView('auth');
+    pushNotification('You have been logged out.', 'info');
   }
 
   function switchView(view) {
@@ -581,19 +620,8 @@ function App() {
           {!currentUser.isAuthenticated ? (
             <button className="ghost-btn" type="button" onClick={() => switchView('auth')}>Login</button>
           ) : (
-            <button
-              className="ghost-btn-danger"
-              type="button"
-              onClick={() => {
-                setCurrentUser({ isAuthenticated: false, role: 'Student', organization: '', name: 'Guest' });
-                setAuthToken('');
-                localStorage.removeItem(AUTH_STORAGE_KEY);
-                setAuthMessage('');
-                setAuthData({ fullName: '', email: '', password: '', confirmPassword: '' });
-                setActiveView('auth');
-                pushNotification('You have been logged out.', 'info');
-              }}
-            >
+            // ✅ Extracted logout into its own named function for clarity
+            <button className="ghost-btn-danger" type="button" onClick={handleLogout}>
               Logout
             </button>
           )}
@@ -710,6 +738,7 @@ function App() {
             </section>
 
             <section className="workspace-grid">
+                  {currentUser.role === 'Admin' && (
               <article className="panel task-panel rise-in" style={{ animationDelay: '500ms' }}>
                 <div className="panel-head">
                   <h3>Request Tracker</h3>
@@ -756,6 +785,7 @@ function App() {
                   ))}
                 </ul>
               </article>
+                  )}
               {currentUser.role !== 'Admin' && (
                 <article className="panel notice-panel rise-in" style={{ animationDelay: '580ms' }}>
                   <div className="panel-head">
@@ -925,7 +955,7 @@ function App() {
 
         {/* ── Calendar ── */}
         {activeView === 'calendar' && !isSubmitting && canAccess('calendar') ? (
-          <CalendarView
+          <CalendarView 
             requests={requests}
             calendarDate={calendarDate}
             setCalendarDate={setCalendarDate}

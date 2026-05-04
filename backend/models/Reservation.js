@@ -1,16 +1,12 @@
 const mongoose = require('mongoose');
+
 /**
  * Parse "HH:MM" or "HH:MM AM/PM" into total minutes since midnight.
- * Returns NaN if the string is not a recognised time format.
  */
 const toMinutes = (timeStr) => {
   if (!timeStr || typeof timeStr !== 'string') return NaN;
-
-  // 24-hour  →  "14:30"
   const h24 = timeStr.match(/^(\d{1,2}):(\d{2})$/);
   if (h24) return parseInt(h24[1], 10) * 60 + parseInt(h24[2], 10);
-
-  // 12-hour  →  "2:30 PM" / "10:00 AM"
   const h12 = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
   if (h12) {
     let hrs = parseInt(h12[1], 10);
@@ -20,13 +16,9 @@ const toMinutes = (timeStr) => {
     if (period === 'PM' && hrs !== 12) hrs += 12;
     return hrs * 60 + mins;
   }
-
   return NaN;
 };
 
-/**
- * Parse a date string "YYYY-MM-DD" into a plain Date at midnight UTC.
- */
 const parseDate = (dateStr) => {
   if (!dateStr || typeof dateStr !== 'string') return null;
   const d = new Date(dateStr);
@@ -41,7 +33,6 @@ const reservationSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
-
     eventName: {
       type: String,
       required: [true, 'Event name is required'],
@@ -49,29 +40,24 @@ const reservationSchema = new mongoose.Schema(
       minlength: [3, 'Event name must be at least 3 characters'],
       maxlength: [100, 'Event name must not exceed 100 characters'],
     },
-
     organization: {
       type: String,
       required: [true, 'Organization is required'],
       trim: true,
       minlength: [2, 'Organization name must be at least 2 characters'],
     },
-
     hall: {
       type: String,
       required: [true, 'Hall is required'],
       trim: true,
     },
-
     date: {
       type: String,
       required: [true, 'Date is required'],
       trim: true,
       validate: [
         {
-          validator(v) {
-            return parseDate(v) !== null;
-          },
+          validator(v) { return parseDate(v) !== null; },
           message: 'Date must be a valid date (YYYY-MM-DD)',
         },
         {
@@ -87,71 +73,53 @@ const reservationSchema = new mongoose.Schema(
         },
       ],
     },
-
     startTime: {
       type: String,
       required: [true, 'Start time is required'],
       trim: true,
       validate: {
-        validator(v) {
-          return !isNaN(toMinutes(v));
-        },
-        message: 'Start time must be a valid time (e.g. 08:00 or 8:00 AM)',
+        validator(v) { return !isNaN(toMinutes(v)); },
+        message: 'Start time must be a valid time',
       },
     },
-
     endTime: {
       type: String,
       required: [true, 'End time is required'],
       trim: true,
       validate: [
         {
-          validator(v) {
-            return !isNaN(toMinutes(v));
-          },
-          message: 'End time must be a valid time (e.g. 17:00 or 5:00 PM)',
+          validator(v) { return !isNaN(toMinutes(v)); },
+          message: 'End time must be a valid time',
         },
         {
-          validator(v) {
-            return toMinutes(v) > toMinutes(this.startTime);
-          },
+          validator(v) { return toMinutes(v) > toMinutes(this.startTime); },
           message: 'End time must be after start time',
         },
       ],
     },
-
     attendees: {
       type: Number,
       required: [true, 'Number of attendees is required'],
       min: [1, 'At least 1 attendee is required'],
-      max: [10000, 'Attendee count seems unreasonably large'],
-      validate: {
-        validator: Number.isInteger,
-        message: 'Attendees must be a whole number',
-      },
     },
-
     status: {
       type: String,
-      enum: {
-        values: ['Pending', 'Approved', 'Rejected'],
-        message: 'Status must be Pending, Approved, or Rejected',
-      },
+      enum: ['Pending', 'Approved', 'Rejected'],
       default: 'Pending',
     },
-
     priority: {
       type: String,
-      enum: {
-        values: ['Low', 'Medium', 'High'],
-        message: 'Priority must be Low, Medium, or High',
-      },
+      enum: ['Low', 'Medium', 'High'],
       default: 'Low',
     },
+    // ✅ MOVED: createdBy is now correctly inside the Schema object
+    createdBy: {
+      type: String,
+      required: true, 
+      trim: true,
+    }
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true } // Correctly placed as the second argument
 );
 
 reservationSchema.index({ hall: 1, date: 1, status: 1 });

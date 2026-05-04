@@ -28,6 +28,7 @@ const createReservation = async (req, res) => {
       attendees: Number(attendees),
       status: status || 'Pending',
       priority: priority || 'Low',
+      createdBy: req.user.email,
     });
 
     await reservation.save();
@@ -59,7 +60,7 @@ const getReservations = async (req, res) => {
   try {
     const query = {};
     if (req.user.role === 'Student') {
-      query.organization = req.user.organization;
+      query.createdBy = req.user.email;
     }
 
     const reservations = await Reservation.find(query).sort({ createdAt: -1 });

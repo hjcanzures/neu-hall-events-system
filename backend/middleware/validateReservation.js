@@ -1,6 +1,5 @@
 const { hasScheduleConflict } = require('../utils/conflictDetection');
 
-
 const isValidTimeStr = (v) => {
   if (!v || typeof v !== 'string') return false;
   return /^\d{1,2}:\d{2}$/.test(v) || /^\d{1,2}:\d{2}\s*(AM|PM)$/i.test(v);
@@ -30,9 +29,9 @@ const toMinutes = (timeStr) => {
   return NaN;
 };
 
-// NEU operating hours: 7:00 AM – 8:00 PM
-const OPEN_MINUTES  = 7 * 60;
-const CLOSE_MINUTES = 20 * 60;
+// ✅ Fixed: NEU operating hours 7:00 AM – 10:00 PM (was 8:00 PM / 20:00)
+const OPEN_MINUTES  = 7 * 60;   // 420  = 7:00 AM
+const CLOSE_MINUTES = 22 * 60;  // 1320 = 10:00 PM
 
 const validateReservation = async (req, res, next) => {
   const { eventName, hall, date, startTime, endTime, attendees, organization } = req.body;
@@ -60,12 +59,12 @@ const validateReservation = async (req, res, next) => {
     errors.push('Attendees must be a positive whole number');
   }
 
-  // Organization: required for non-Student-Org roles via body
-  if (req.user?.role !== 'Student Org' && !organization?.trim()) {
+  // ✅ Fixed: organization is required for ALL roles via body,
+  // not just non-Student-Org. Students pass org in the form.
+  if (!organization?.trim()) {
     errors.push('Organization is required');
   }
 
-  // Return early if basic fields are missing — time checks below would throw
   if (errors.length > 0) {
     return res.status(400).json({ error: 'Validation failed', details: errors });
   }
