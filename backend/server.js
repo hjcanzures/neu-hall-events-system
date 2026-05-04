@@ -1,5 +1,9 @@
 const express = require('express');
 const cors = require('cors');
+app.use(cors({
+  origin: "neu-hall-events-system.vercel.app", // Your Vercel URL
+  credentials: true
+}));
 const dotenv = require('dotenv');
 const bcrypt = require('bcryptjs');
 const connectDB = require('./config/db');
