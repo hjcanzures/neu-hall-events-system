@@ -1,15 +1,14 @@
 const express = require('express');
 const cors = require('cors');
-app.use(cors({
-  origin: "neu-hall-events-system.vercel.app", // Your Vercel URL
-  credentials: true
-}));
 const dotenv = require('dotenv');
 const bcrypt = require('bcryptjs');
 const connectDB = require('./config/db');
 const User = require('./models/User');
 
 dotenv.config();
+
+// 1. Initialize app BEFORE using it ✅
+const app = express();
 
 const createDefaultAdmin = async () => {
   try {
@@ -41,20 +40,22 @@ const createDefaultAdmin = async () => {
   }
 };
 
-const app = express();
-
-// CORS
+// 2. Configure CORS properly ✅
 const allowedOrigins = [
-  process.env.FRONTEND_URL,
+  process.env.FRONTEND_URL, // Ensure this is set to https://neu-hall-events-system.vercel.app in Railway
+  'https://neu-hall-events-system.vercel.app', 
   'http://localhost:5173',
   'http://localhost:3000',
 ].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl) 
+    // or if the origin is in our allowed list
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.log("Blocked by CORS:", origin); // Helpful for debugging
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -82,17 +83,14 @@ app.use('/api/events', eventRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/students', studentRoutes);
 
-// Test route
 app.get('/', (req, res) => {
   res.send('NEU Hall Events API Running');
 });
 
-// Health check route
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Global error handler — must be last
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(err.status || 500).json({
@@ -100,7 +98,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Server
 const PORT = process.env.PORT || 5000;
 
 const startServer = async () => {
