@@ -16,6 +16,7 @@ app.use(express.json());
 const allowedOrigins = [
   process.env.FRONTEND_URL, 
   'https://neu-hall-events-system.vercel.app', 
+  'https://neu-hall-events-system-57ui2bs3l-jedh-anzures-projects.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
 ].filter(Boolean);
