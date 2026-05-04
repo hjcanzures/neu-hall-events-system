@@ -7,14 +7,12 @@ const User = require('./models/User');
 
 dotenv.config();
 
-// 1. Initialize app
 const app = express();
 
-// 2. Essential Middleware - Move express.json() up
+// 1. Move express.json() to the very top
 app.use(express.json());
 
-// 3. Configure CORS properly
-// Note: Ensure FRONTEND_URL in Railway does NOT have a trailing slash
+// 2. Comprehensive CORS Configuration
 const allowedOrigins = [
   process.env.FRONTEND_URL, 
   'https://neu-hall-events-system.vercel.app', 
@@ -24,19 +22,20 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl) 
-    // or if the origin is in our allowed list
+    // Brave/Safari sometimes strip the origin or send 'null' on certain POST requests.
+    // If !origin, we allow it to bridge the "Provisional Headers" gap.
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       console.warn("Blocked by CORS Policy:", origin); 
-      // Passing 'false' instead of an Error object prevents 
-      // the server from returning a 500 status code.
       callback(null, false);
     }
   },
   credentials: true,
-  optionsSuccessStatus: 200 // Essential for handling Preflight (OPTIONS) successfully
+  // Added explicit methods and allowed headers to prevent browser blocking
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  optionsSuccessStatus: 200 
 }));
 
 const createDefaultAdmin = async () => {
