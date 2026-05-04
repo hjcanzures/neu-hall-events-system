@@ -13,10 +13,7 @@ const createReservation = async (req, res) => {
       priority,
     } = req.body;
 
-    const organization =
-      req.user.role === 'Student Org'
-        ? req.user.organization
-        : req.body.organization;
+    const organization = (req.body.organization || req.user.organization || '').trim();
 
     const requestId = `REQ-${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -60,9 +57,8 @@ const createReservation = async (req, res) => {
 // ---------------------------------------------------------------------------
 const getReservations = async (req, res) => {
   try {
-    const reservations = await Reservation.find().sort({ createdAt: -1 });
     const query = {};
-    if (req.user.role === 'Student Org') {
+    if (req.user.role === 'Student') {
       query.organization = req.user.organization;
     }
 
