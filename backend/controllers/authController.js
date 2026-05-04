@@ -9,20 +9,27 @@ const inferProfileFromEmail = () => ({ role: 'Student', organization: '' });
 
 const normalizeRole = (role) => (role === 'Student Org' ? 'Student' : role);
 
+// ✅ Fixed: no longer wipes organization for Students.
+// Students need their organization preserved so reservation
+// queries like { organization: req.user.organization } work correctly.
 const serializeUser = (user) => {
   const role = normalizeRole(user.role);
   return {
     fullName: user.fullName,
     email: user.email,
     role,
-    organization: role === 'Student' ? '' : user.organization,
+    organization: user.organization || '',
   };
 };
 
 const generateToken = (user) => {
-  return jwt.sign({ id: user._id, email: user.email, role: user.role }, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN,
-  });
+  const role = normalizeRole(user.role); 
+  
+  return jwt.sign(
+    { id: user._id, email: user.email, role: role }, 
+    JWT_SECRET, 
+    { expiresIn: JWT_EXPIRES_IN }
+  );
 };
 
 const register = async (req, res) => {
