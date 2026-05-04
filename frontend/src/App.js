@@ -283,7 +283,6 @@ function App() {
         localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: parsed.token, user: data.user }));
         setActiveView('dashboard');
       } catch (error) {
-        // ✅ Silently clear invalid/expired stored session
         localStorage.removeItem(AUTH_STORAGE_KEY);
         setAuthToken('');
       }
@@ -312,7 +311,6 @@ function App() {
         setRequests(savedRequests);
       } catch (error) {
         console.error('Unable to load saved reservations:', error);
-        // ✅ Show user-facing error instead of silently failing
         pushNotification('Could not load reservations. Please refresh or log in again.', 'error');
       }
     };
@@ -346,7 +344,6 @@ function App() {
   };
 
   const dashboardStats = useMemo(() => {
-  // Return empty stats if the user is not an Admin
   if (currentUser.role !== 'Admin') {
     return [];
   }
@@ -486,7 +483,6 @@ function App() {
       setFormData({ eventName: '', organization: '', hall: '', date: '', startTime: '', endTime: '', attendees: '' });
     } catch (error) {
       console.error('Submit reservation error:', error);
-      // ✅ Show backend error message if available, otherwise generic fallback
       pushNotification(error?.message || 'Unable to save reservation. Please try again.', 'error');
     }
   }
@@ -504,41 +500,56 @@ function App() {
     return Object.keys(errors).length === 0;
   }
 
+  // ✅ FIXED AUTH SUBMIT - PREVENTS CRASHES AND CATCHES ERRORS
   async function handleAuthSubmit(event) {
     event.preventDefault();
     if (!validateAuth()) { setAuthMessage(''); return; }
+    
     setAuthLoading(true);
     setAuthMessage('');
+
     try {
-      const { data } = await apiClient.post(`/auth/${authMode}`, {
-        fullName: authData.fullName.trim(),
-        email: authData.email.trim(),
-        password: authData.password,
-      });
-      const user = {
-        isAuthenticated: true,
-        role: data.user.role,
-        organization: data.user.organization,
-        name: data.user.fullName || data.user.email.split('@')[0],
-        email: data.user.email,
-      };
-      setCurrentUser(user);
-      setAuthToken(data.token);
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: data.token, user: data.user }));
-      setFormData((previous) => ({ ...previous, organization: data.user.organization }));
-      setAuthMessage(
-        authMode === 'login'
-          ? `Welcome back. Signed in as ${data.user.role}.`
-          : `Registration complete. Signed in as ${data.user.role}.`
-      );
-      setActiveView('dashboard');
-      pushNotification(`Welcome, ${data.user.role}!`, 'success');
+        const payload = {
+            email: authData.email.trim(),
+            password: authData.password,
+        };
+
+        // Only include and trim fullName if registering
+        if (authMode === 'register') {
+            payload.fullName = authData.fullName?.trim();
+        }
+
+        const { data } = await apiClient.post(`/auth/${authMode}`, payload);
+
+        const user = {
+            isAuthenticated: true,
+            role: data.user.role,
+            organization: data.user.organization,
+            name: data.user.fullName || data.user.email.split('@')[0],
+            email: data.user.email,
+        };
+
+        setCurrentUser(user);
+        setAuthToken(data.token);
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ token: data.token, user: data.user }));
+        setFormData((previous) => ({ ...previous, organization: data.user.organization }));
+        
+        setAuthMessage(
+            authMode === 'login'
+              ? `Welcome back. Signed in as ${data.user.role}.`
+              : `Registration complete. Signed in as ${data.user.role}.`
+        );
+        
+        setActiveView('dashboard');
+        pushNotification(`Welcome, ${data.user.role}!`, 'success');
+
     } catch (error) {
-      console.error('Auth submit error:', error);
-      // ✅ Show specific backend message (e.g. "Invalid credentials") if available
-      setAuthMessage(error?.message || 'Unable to authenticate. Please check your credentials.');
+        console.error('Auth submit error:', error);
+        // Display specific error from backend or a friendly network error message
+        const errorMessage = error?.message || "Connection failed. Please check your backend status.";
+        setAuthMessage(errorMessage);
     } finally {
-      setAuthLoading(false);
+        setAuthLoading(false);
     }
   }
 
@@ -567,7 +578,7 @@ function App() {
   function handleLogout() {
     setCurrentUser({ isAuthenticated: false, role: 'Student', organization: '', name: 'Guest' });
     setAuthToken('');
-    setRequests([]); // ✅ Clear loaded data on logout
+    setRequests([]); 
     localStorage.removeItem(AUTH_STORAGE_KEY);
     setAuthMessage('');
     setAuthData({ fullName: '', email: '', password: '', confirmPassword: '' });
@@ -620,7 +631,6 @@ function App() {
           {!currentUser.isAuthenticated ? (
             <button className="ghost-btn" type="button" onClick={() => switchView('auth')}>Login</button>
           ) : (
-            // ✅ Extracted logout into its own named function for clarity
             <button className="ghost-btn-danger" type="button" onClick={handleLogout}>
               Logout
             </button>
@@ -738,7 +748,8 @@ function App() {
             </section>
 
             <section className="workspace-grid">
-                  {currentUser.role === 'Admin' && (
+                  {/* ✅ FIXED CONDITION: SHOW TRACKER FOR ALL AUTHENTICATED USERS */}
+                  {currentUser.isAuthenticated && (
               <article className="panel task-panel rise-in" style={{ animationDelay: '500ms' }}>
                 <div className="panel-head">
                   <h3>Request Tracker</h3>
