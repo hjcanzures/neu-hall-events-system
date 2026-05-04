@@ -9,10 +9,7 @@ dotenv.config();
 
 const app = express();
 
-// 1. Move express.json() to the very top
-app.use(express.json());
-
-// 2. Comprehensive CORS Configuration
+// CORS Configuration — must be before express.json()
 const allowedOrigins = [
   process.env.FRONTEND_URL, 
   'https://neu-hall-events-system.vercel.app', 
@@ -23,8 +20,6 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Brave/Safari sometimes strip the origin or send 'null' on certain POST requests.
-    // If !origin, we allow it to bridge the "Provisional Headers" gap.
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -33,11 +28,16 @@ app.use(cors({
     }
   },
   credentials: true,
-  // Added explicit methods and allowed headers to prevent browser blocking
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   optionsSuccessStatus: 200 
 }));
+
+// Handle preflight requests for all routes
+app.options('/{*path}', cors());
+
+// Body parser — after CORS
+app.use(express.json());
 
 const createDefaultAdmin = async () => {
   try {
