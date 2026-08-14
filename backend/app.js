@@ -15,6 +15,7 @@ const allowedOrigins = [
   'https://neu-hall-events-system.vercel.app',
   'https://neu-hall-events-system-57ui2bs3l-jedh-anzures-projects.vercel.app',
   'https://neuhall-events.vercel.app',
+  'neu-hall-events-management-system-98ynuoyze.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
 ].filter(Boolean);
